@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { sendTransferNotification } = require('./notificationController');
 
 // Envoyer de l'argent
 const sendMoney = async (req, res) => {
@@ -58,10 +59,19 @@ const sendMoney = async (req, res) => {
       [req.user.id, receiver.id, amount]
     );
 
-    res.json({
-      message: 'Transfert effectué avec succès',
-      transaction: transaction.rows[0]
-    });
+    // Envoyer notifications email
+await sendTransferNotification(
+  req.user.email || senderWallet.rows[0].email,
+  receiver.full_name,
+  receiver.email,
+  receiver.full_name,
+  amount
+);
+
+res.json({
+  message: 'Transfert effectué avec succès',
+  transaction: transaction.rows[0]
+});
 
   } catch (error) {
     res.status(500).json({ message: error.message });

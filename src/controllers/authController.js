@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { sendWelcome } = require('./notificationController');
 
 // INSCRIPTION
 const register = async (req, res) => {
@@ -42,7 +43,10 @@ const register = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.status(201).json({ user, token });
+// Envoyer email de bienvenue
+await sendWelcome(user.email, user.full_name);
+
+res.status(201).json({ user, token });
 
   } catch (error) {
     res.status(500).json({ message: error.message });
