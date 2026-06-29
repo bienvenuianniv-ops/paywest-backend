@@ -67,6 +67,30 @@ await sendTransferNotification(
   receiver.full_name,
   amount
 );
+const senderInfo = await pool.query(
+  'SELECT * FROM users WHERE id = $1', 
+  [req.user.id]
+);
+
+await sendTransferNotification(
+  senderInfo.rows[0].email,
+  senderInfo.rows[0].full_name,
+  receiverResult.rows[0].email,
+receiverResult.rows[0].full_name,
+  amount
+);
+const senderInfo = await pool.query(
+  'SELECT * FROM users WHERE id = $1', 
+  [req.user.id]
+);
+
+await sendTransferNotification(
+  senderInfo.rows[0].email,
+  senderInfo.rows[0].full_name,
+  receiver.email,
+  receiver.full_name,
+  amount
+);
 
 res.json({
   message: 'Transfert effectué avec succès',
