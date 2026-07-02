@@ -68,7 +68,9 @@ const login = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+      // Message volontairement identique à celui du mauvais mot de passe :
+      // on ne révèle jamais si un email existe en base ou non.
+      return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
     }
 
     const user = result.rows[0];
@@ -76,7 +78,7 @@ const login = async (req, res) => {
     // Vérifier le mot de passe
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Mot de passe incorrect' });
+      return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
     }
 
     // Générer le token JWT

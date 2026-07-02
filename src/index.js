@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 require('dotenv').config();
 
 // Imports des routes
@@ -11,15 +12,39 @@ const merchantRoutes = require('./routes/merchantRoutes');
 const depositRoutes = require('./routes/depositRoutes');
 const orangeRoutes = require('./routes/orangeRoutes');
 
+const { authLimiter, generalLimiter } = require('./middleware/rateLimitMiddleware');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Domaines autorisés à appeler l'API. En dev, on ajoute localhost
+// pour ne pas avoir à changer cette liste à chaque test local.
+const allowedOrigins = [
+  'https://pay.mayouservice.com',
+  'http://localhost:3000',
+  'http://localhost:5173'
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // origin est undefined pour les requêtes sans navigateur (Postman, curl, etc.)
+    // — on les laisse passer, elles ne sont pas concernées par le risque CORS.
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Origine non autorisée par CORS'));
+    }
+  }
+};
+
 // Middlewares
-app.use(cors());
+app.use(helmet());
+app.use(cors(corsOptions));
 app.use(express.json());
+app.use('/api', generalLimiter); // limite générale sur toute l'API
 
 // Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes); // limite stricte en plus, spécifique à l'auth
 app.use('/api/wallet', walletRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/admin', adminRoutes);
