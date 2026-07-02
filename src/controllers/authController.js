@@ -5,7 +5,10 @@ const { sendWelcome } = require('./notificationController');
 
 // INSCRIPTION
 const register = async (req, res) => {
-  const { full_name, email, phone, password, role } = req.body;
+  // Le rôle n'est JAMAIS lu depuis req.body : on ne fait pas confiance au client
+  // pour décider de ses propres privilèges. Toute inscription publique est 'customer'.
+  const { full_name, email, phone, password } = req.body;
+  const role = 'customer';
 
   try {
     // Vérifier si l'utilisateur existe déjà
@@ -25,7 +28,7 @@ const register = async (req, res) => {
     const newUser = await pool.query(
       `INSERT INTO users (full_name, email, phone, password, role)
        VALUES ($1, $2, $3, $4, $5) RETURNING id, full_name, email, phone, role`,
-      [full_name, email, phone, hashedPassword, role || 'customer']
+      [full_name, email, phone, hashedPassword, role]
     );
 
     const user = newUser.rows[0];
@@ -43,10 +46,10 @@ const register = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-// Envoyer email de bienvenue
-await sendWelcome(user.email, user.full_name);
+    // Envoyer email de bienvenue
+    await sendWelcome(user.email, user.full_name);
 
-res.status(201).json({ user, token });
+    res.status(201).json({ user, token });
 
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -37,59 +37,73 @@ const generateQRCode = async (req, res) => {
 
 // Payer via QR code
 const payViaQR = async (req, res) => {
-  const { merchant_id, qr_code, amount } = req.body;
+  const { merchant_id, qr_code, amount: rawAmount } = req.body;
+  const amount = Number(rawAmount);
+
+  // Validation stricte : nombre fini et strictement positif
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ message: 'Montant invalide' });
+  }
+
+  // NOTE : qr_code n'est pour l'instant pas vérifié contre une valeur stockée
+  // (voir point "QR code jamais vérifié" de l'audit — à traiter séparément).
+
+  const client = await pool.connect();
 
   try {
-    // Vérifier que le montant est valide
-    if (amount <= 0) {
-      return res.status(400).json({ message: 'Montant invalide' });
-    }
+    await client.query('BEGIN');
 
     // Vérifier que le marchand existe
-    const merchant = await pool.query(
+    const merchant = await client.query(
       'SELECT * FROM users WHERE id = $1',
       [merchant_id]
     );
 
     if (merchant.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Marchand non trouvé' });
     }
 
     // Vérifier que le client ne paie pas lui-même
     if (parseInt(merchant_id) === req.user.id) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Vous ne pouvez pas vous payer vous-même' });
     }
 
-    // Vérifier le solde du client
-    const clientWallet = await pool.query(
-      'SELECT * FROM wallets WHERE user_id = $1',
+    // Verrouiller la ligne du wallet client : un paiement concurrent sur ce
+    // même compte doit attendre la fin de celui-ci avant de lire le solde.
+    const clientWallet = await client.query(
+      'SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE',
       [req.user.id]
     );
 
     if (parseFloat(clientWallet.rows[0].balance) < amount) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Solde insuffisant' });
     }
 
     // Débiter le client
-    await pool.query(
+    await client.query(
       `UPDATE wallets SET balance = balance - $1, updated_at = NOW()
        WHERE user_id = $2`,
       [amount, req.user.id]
     );
 
     // Créditer le marchand
-    await pool.query(
+    await client.query(
       `UPDATE wallets SET balance = balance + $1, updated_at = NOW()
        WHERE user_id = $2`,
       [amount, merchant_id]
     );
 
     // Enregistrer la transaction
-    const transaction = await pool.query(
+    const transaction = await client.query(
       `INSERT INTO transactions (sender_id, receiver_id, amount, type, status)
        VALUES ($1, $2, $3, 'payment', 'completed') RETURNING *`,
       [req.user.id, merchant_id, amount]
     );
+
+    await client.query('COMMIT');
 
     res.json({
       message: 'Paiement effectué avec succès',
@@ -98,7 +112,10 @@ const payViaQR = async (req, res) => {
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     res.status(500).json({ message: error.message });
+  } finally {
+    client.release();
   }
 };
 
