@@ -1,21 +1,43 @@
 const pool = require('../config/db');
 const crypto = require('crypto');
 
-// Générer un QR code pour le marchand
+// Générer un QR code pour le marchand (statique, réutilisable)
+// Génère un nouveau code et désactive automatiquement l'ancien —
+// c'est ce qui permet au marchand de révoquer un QR compromis
+// simplement en en régénérant un nouveau.
 const generateQRCode = async (req, res) => {
+  const client = await pool.connect();
+
   try {
-    // Vérifier que l'utilisateur est bien marchand ou admin
-    const user = await pool.query(
+    await client.query('BEGIN');
+
+    const user = await client.query(
       'SELECT * FROM users WHERE id = $1',
       [req.user.id]
     );
 
     if (user.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Utilisateur non trouvé' });
     }
 
-    // Générer un code unique pour le marchand
+    // Désactiver l'ancien code actif de ce marchand, s'il existe
+    await client.query(
+      `UPDATE merchant_qr_codes SET status = 'revoked'
+       WHERE merchant_id = $1 AND status = 'active'`,
+      [req.user.id]
+    );
+
+    // Générer et enregistrer le nouveau code
     const qrCode = crypto.randomBytes(16).toString('hex');
+    await client.query(
+      `INSERT INTO merchant_qr_codes (merchant_id, qr_code, status)
+       VALUES ($1, $2, 'active')`,
+      [req.user.id, qrCode]
+    );
+
+    await client.query('COMMIT');
+
     const qrData = {
       merchant_id: req.user.id,
       merchant_name: user.rows[0].full_name,
@@ -25,13 +47,16 @@ const generateQRCode = async (req, res) => {
     };
 
     res.json({
-      message: 'QR code généré avec succès',
+      message: 'QR code généré avec succès. Le précédent QR de ce compte est désormais invalide.',
       qr_data: qrData,
       payment_url: `https://paywest.mayouservice.com/pay?merchant=${req.user.id}&code=${qrCode}`
     });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     res.status(500).json({ message: error.message });
+  } finally {
+    client.release();
   }
 };
 
@@ -45,8 +70,9 @@ const payViaQR = async (req, res) => {
     return res.status(400).json({ message: 'Montant invalide' });
   }
 
-  // NOTE : qr_code n'est pour l'instant pas vérifié contre une valeur stockée
-  // (voir point "QR code jamais vérifié" de l'audit — à traiter séparément).
+  if (!qr_code) {
+    return res.status(400).json({ message: 'QR code manquant' });
+  }
 
   const client = await pool.connect();
 
@@ -62,6 +88,20 @@ const payViaQR = async (req, res) => {
     if (merchant.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Marchand non trouvé' });
+    }
+
+    // Vérifier que le QR code envoyé correspond bien à un code ACTIF
+    // appartenant à CE marchand précis. C'est ça qui empêche de payer
+    // en devinant juste un merchant_id, sans jamais avoir scanné de vrai QR.
+    const qrRecord = await client.query(
+      `SELECT * FROM merchant_qr_codes
+       WHERE qr_code = $1 AND merchant_id = $2 AND status = 'active'`,
+      [qr_code, merchant_id]
+    );
+
+    if (qrRecord.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'QR code invalide ou expiré' });
     }
 
     // Vérifier que le client ne paie pas lui-même
