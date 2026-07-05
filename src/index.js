@@ -57,6 +57,15 @@ app.get('/', (req, res) => {
   res.json({ message: 'PayWest API is running 🚀' });
 });
 
+// Handler d'erreur global : filet de sécurité pour les erreurs qui
+// n'ont pas été catchées par une route (rejet CORS, JSON malformé...).
+// Sans ça, Express renvoie sa page d'erreur par défaut avec la stack
+// trace complète, faute de NODE_ENV=production défini sur l'hébergeur.
+app.use((err, req, res, next) => {
+  console.error('Erreur non gérée:', err.message);
+  res.status(err.status || 500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
+});
+
 // Démarrage du serveur
 app.listen(PORT, () => {
   console.log(`Serveur PayWest démarré sur le port ${PORT}`);
