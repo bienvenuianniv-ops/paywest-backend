@@ -17,6 +17,12 @@ const { authLimiter, generalLimiter } = require('./middleware/rateLimitMiddlewar
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Un seul reverse proxy devant l'app (hébergeur PaaS) : on lui fait
+// confiance pour le X-Forwarded-For, sinon express-rate-limit voit
+// l'IP du proxy pour tout le monde et mélange les compteurs de tous
+// les utilisateurs derrière la même limite.
+app.set('trust proxy', 1);
+
 // Domaines autorisés à appeler l'API. En dev, on ajoute localhost
 // pour ne pas avoir à changer cette liste à chaque test local.
 const allowedOrigins = [
