@@ -32,7 +32,8 @@ const initiateOrangeDeposit = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur initiation dépôt Orange Money:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
@@ -74,7 +75,8 @@ const confirmOrangeDeposit = async (req, res) => {
     res.json({ message: 'Dépôt Orange Money confirmé avec succès' });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur confirmation dépôt Orange Money:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
@@ -91,7 +93,8 @@ const getOrangeDeposits = async (req, res) => {
     res.json(result.rows);
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur historique dépôts Orange Money:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 

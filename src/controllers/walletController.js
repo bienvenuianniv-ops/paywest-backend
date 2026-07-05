@@ -19,7 +19,8 @@ const getWallet = async (req, res) => {
     res.json(result.rows[0]);
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur consultation wallet:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
@@ -50,7 +51,8 @@ const creditWallet = async (req, res) => {
     res.json({ message: 'Wallet rechargé avec succès', wallet: result.rows[0] });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur recharge wallet:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 

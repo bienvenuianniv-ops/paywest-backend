@@ -54,7 +54,8 @@ const generateQRCode = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    res.status(500).json({ message: error.message });
+    console.error('Erreur génération QR code:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   } finally {
     client.release();
   }
@@ -153,7 +154,8 @@ const payViaQR = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    res.status(500).json({ message: error.message });
+    console.error('Erreur paiement QR code:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   } finally {
     client.release();
   }

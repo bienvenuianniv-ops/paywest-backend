@@ -14,7 +14,8 @@ const getAllUsers = async (req, res) => {
     res.json(result.rows);
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur liste utilisateurs:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
@@ -34,7 +35,8 @@ const getAllTransactions = async (req, res) => {
     res.json(result.rows);
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur liste transactions admin:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
@@ -56,7 +58,8 @@ const getStats = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur statistiques admin:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
@@ -83,7 +86,8 @@ const updateUserRole = async (req, res) => {
     res.json({ message: 'Rôle mis à jour avec succès', user: result.rows[0] });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur changement de rôle:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
