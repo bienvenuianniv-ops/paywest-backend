@@ -10,14 +10,21 @@ const register = async (req, res) => {
   const { full_name, email, phone, password } = req.body;
   const role = 'customer';
 
+  // Un seul client dédié : la création du user et de son wallet doit être
+  // tout ou rien, sinon un échec partiel laisse un compte sans wallet.
+  const client = await pool.connect();
+
   try {
+    await client.query('BEGIN');
+
     // Vérifier si l'utilisateur existe déjà
-    const existingUser = await pool.query(
+    const existingUser = await client.query(
       'SELECT * FROM users WHERE email = $1 OR phone = $2',
       [email, phone]
     );
 
     if (existingUser.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Email ou téléphone déjà utilisé' });
     }
 
@@ -25,7 +32,7 @@ const register = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Créer l'utilisateur
-    const newUser = await pool.query(
+    const newUser = await client.query(
       `INSERT INTO users (full_name, email, phone, password, role)
        VALUES ($1, $2, $3, $4, $5) RETURNING id, full_name, email, phone, role`,
       [full_name, email, phone, hashedPassword, role]
@@ -34,10 +41,12 @@ const register = async (req, res) => {
     const user = newUser.rows[0];
 
     // Créer le wallet automatiquement
-    await pool.query(
+    await client.query(
       'INSERT INTO wallets (user_id) VALUES ($1)',
       [user.id]
     );
+
+    await client.query('COMMIT');
 
     // Générer le token JWT
     const token = jwt.sign(
@@ -46,13 +55,22 @@ const register = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Envoyer email de bienvenue
-    await sendWelcome(user.email, user.full_name);
+    // La notification part APRES le commit : un email qui échoue ne doit
+    // jamais faire annuler la création du compte déjà validée.
+    try {
+      await sendWelcome(user.email, user.full_name);
+    } catch (mailError) {
+      console.error('Email de bienvenue non envoyé:', mailError.message);
+    }
 
     res.status(201).json({ user, token });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    await client.query('ROLLBACK');
+    console.error('Erreur inscription:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
+  } finally {
+    client.release();
   }
 };
 
@@ -100,7 +118,8 @@ const login = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur connexion:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
