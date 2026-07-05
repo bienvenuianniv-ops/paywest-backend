@@ -98,7 +98,8 @@ const sendMoney = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
-    res.status(500).json({ message: error.message });
+    console.error('Erreur transfert:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   } finally {
     client.release();
   }
@@ -122,7 +123,8 @@ const getTransactions = async (req, res) => {
     res.json(result.rows);
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('Erreur historique transactions:', error.message);
+    res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
   }
 };
 
