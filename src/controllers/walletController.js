@@ -26,11 +26,23 @@ const getWallet = async (req, res) => {
 
 // Recharger son wallet (admin/agent uniquement)
 const creditWallet = async (req, res) => {
-  const { user_id, amount } = req.body;
+  const { user_id, amount: rawAmount } = req.body;
+  const amount = Number(rawAmount);
+
+  // Validation stricte : nombre fini et strictement positif
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ message: 'Montant invalide' });
+  }
+
+  // Un seul client dédié : créditer le wallet et enregistrer la transaction
+  // doit être tout ou rien.
+  const client = await pool.connect();
 
   try {
-    const result = await pool.query(
-      `UPDATE wallets 
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      `UPDATE wallets
        SET balance = balance + $1, updated_at = NOW()
        WHERE user_id = $2
        RETURNING *`,
@@ -38,21 +50,27 @@ const creditWallet = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Wallet non trouvé' });
     }
 
     // Enregistrer la transaction
-    await pool.query(
+    await client.query(
       `INSERT INTO transactions (sender_id, receiver_id, amount, type, status)
        VALUES ($1, $2, $3, 'credit', 'completed')`,
       [req.user.id, user_id, amount]
     );
 
+    await client.query('COMMIT');
+
     res.json({ message: 'Wallet rechargé avec succès', wallet: result.rows[0] });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Erreur recharge wallet:', error.message);
     res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
+  } finally {
+    client.release();
   }
 };
 

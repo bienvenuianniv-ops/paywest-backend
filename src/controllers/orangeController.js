@@ -39,44 +39,64 @@ const initiateOrangeDeposit = async (req, res) => {
 
 // Webhook Orange Money — confirmer le dépôt
 const confirmOrangeDeposit = async (req, res) => {
+  // Le webhook est un endpoint public (Orange n'a pas de JWT utilisateur) :
+  // un secret partagé est la seule barrière avant de créditer un wallet.
+  if (req.headers['x-webhook-secret'] !== process.env.ORANGE_WEBHOOK_SECRET) {
+    return res.status(401).json({ message: 'Non autorisé' });
+  }
+
   const { reference, transaction_id, status } = req.body;
 
-  try {
-    if (status !== 'completed') {
-      return res.status(400).json({ message: 'Paiement non complété' });
-    }
+  if (status !== 'completed') {
+    return res.status(400).json({ message: 'Paiement non complété' });
+  }
 
-    const tx = await pool.query(
-      'SELECT * FROM transactions WHERE id = $1',
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Verrouiller la ligne de transaction : un webhook rejoué en parallèle
+    // doit attendre la fin de celui-ci avant de relire le statut, sinon
+    // deux appels concurrents peuvent tous deux créditer le wallet.
+    const tx = await client.query(
+      'SELECT * FROM transactions WHERE id = $1 FOR UPDATE',
       [transaction_id]
     );
 
     if (tx.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ message: 'Transaction non trouvée' });
     }
 
     if (tx.rows[0].status === 'completed') {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Transaction déjà complétée' });
     }
 
     // Créditer le wallet
-    await pool.query(
+    await client.query(
       `UPDATE wallets SET balance = balance + $1, updated_at = NOW()
        WHERE user_id = $2`,
       [tx.rows[0].amount, tx.rows[0].sender_id]
     );
 
     // Mettre à jour le statut
-    await pool.query(
+    await client.query(
       `UPDATE transactions SET status = 'completed' WHERE id = $1`,
       [transaction_id]
     );
 
+    await client.query('COMMIT');
+
     res.json({ message: 'Dépôt Orange Money confirmé avec succès' });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Erreur confirmation dépôt Orange Money:', error.message);
     res.status(500).json({ message: 'Erreur serveur, veuillez réessayer plus tard' });
+  } finally {
+    client.release();
   }
 };
 
