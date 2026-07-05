@@ -15,7 +15,7 @@ async function initDb() {
 
       CREATE TABLE IF NOT EXISTS wallets (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id),
+        user_id INTEGER UNIQUE REFERENCES users(id),
         balance DECIMAL(15,2) DEFAULT 0.00,
         currency VARCHAR(10) DEFAULT 'XOF',
         updated_at TIMESTAMP DEFAULT NOW()
@@ -30,7 +30,37 @@ async function initDb() {
         status VARCHAR(20) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS merchant_qr_codes (
+        id SERIAL PRIMARY KEY,
+        merchant_id INTEGER REFERENCES users(id),
+        qr_code VARCHAR(64) UNIQUE NOT NULL,
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
+
+    // Migration pour les bases créées avant l'ajout de la contrainte UNIQUE
+    // sur wallets.user_id : CREATE TABLE IF NOT EXISTS ne la rajoute pas
+    // rétroactivement sur une table déjà existante.
+    const duplicates = await pool.query(
+      `SELECT user_id FROM wallets WHERE user_id IS NOT NULL GROUP BY user_id HAVING COUNT(*) > 1`
+    );
+
+    if (duplicates.rows.length > 0) {
+      console.error(`⚠️ Doublons détectés sur wallets.user_id pour ${duplicates.rows.length} utilisateur(s) : contrainte UNIQUE non appliquée. Nettoyer les doublons manuellement avant de relancer initDb.`);
+    } else {
+      await pool.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'wallets_user_id_key'
+          ) THEN
+            ALTER TABLE wallets ADD CONSTRAINT wallets_user_id_key UNIQUE (user_id);
+          END IF;
+        END $$;
+      `);
+    }
 
     console.log('✅ Tables créées avec succès !');
     process.exit(0);
