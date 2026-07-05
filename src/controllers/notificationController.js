@@ -1,5 +1,17 @@
 const sendEmail = require('../config/mailer');
 
+// Échappe les caractères HTML avant interpolation dans un template email :
+// full_name est fourni par l'utilisateur et se retrouve dans des emails
+// envoyés à un tiers (transferSent/transferReceived), donc du HTML/JS
+// injecté dans un nom pourrait s'afficher chez le destinataire.
+const escapeHtml = (str) =>
+  String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 // Templates d'emails
 const templates = {
   welcome: (name) => ({
@@ -8,7 +20,7 @@ const templates = {
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0F1610;color:#EEF2EE;padding:40px;border-radius:16px">
         <h1 style="color:#0EAD69;font-size:28px;margin-bottom:8px">Pay<span>West</span></h1>
         <p style="color:#7A8F7C;margin-bottom:32px">Transferts sans frontières</p>
-        <h2 style="font-size:20px;margin-bottom:16px">Bienvenue ${name} ! 👋</h2>
+        <h2 style="font-size:20px;margin-bottom:16px">Bienvenue ${escapeHtml(name)} ! 👋</h2>
         <p style="line-height:1.6;color:#7A8F7C">Votre compte PayWest est maintenant actif. Vous pouvez envoyer et recevoir de l'argent à travers l'Afrique et au-delà.</p>
         <div style="background:#1A231B;border-radius:10px;padding:20px;margin:24px 0;border:1px solid rgba(14,173,105,0.2)">
           <p style="color:#0EAD69;font-weight:bold;margin-bottom:8px">✅ Compte activé</p>
@@ -25,10 +37,10 @@ const templates = {
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0F1610;color:#EEF2EE;padding:40px;border-radius:16px">
         <h1 style="color:#0EAD69;font-size:28px;margin-bottom:8px">PayWest</h1>
         <h2 style="font-size:20px;margin-bottom:16px">Transfert effectué 💸</h2>
-        <p style="color:#7A8F7C">Bonjour ${name},</p>
+        <p style="color:#7A8F7C">Bonjour ${escapeHtml(name)},</p>
         <div style="background:#1A231B;border-radius:10px;padding:20px;margin:24px 0;border:1px solid rgba(226,87,75,0.2)">
           <p style="color:#E2574B;font-size:32px;font-weight:bold;margin:0">-${amount} XOF</p>
-          <p style="color:#7A8F7C;margin-top:8px">Envoyé à : <strong style="color:#EEF2EE">${receiver}</strong></p>
+          <p style="color:#7A8F7C;margin-top:8px">Envoyé à : <strong style="color:#EEF2EE">${escapeHtml(receiver)}</strong></p>
         </div>
         <p style="color:#4A5E4C;font-size:12px;margin-top:32px">© 2026 PayWest — Tous droits réservés</p>
       </div>
@@ -41,10 +53,10 @@ const templates = {
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0F1610;color:#EEF2EE;padding:40px;border-radius:16px">
         <h1 style="color:#0EAD69;font-size:28px;margin-bottom:8px">PayWest</h1>
         <h2 style="font-size:20px;margin-bottom:16px">Argent reçu 💰</h2>
-        <p style="color:#7A8F7C">Bonjour ${name},</p>
+        <p style="color:#7A8F7C">Bonjour ${escapeHtml(name)},</p>
         <div style="background:#1A231B;border-radius:10px;padding:20px;margin:24px 0;border:1px solid rgba(14,173,105,0.2)">
           <p style="color:#0EAD69;font-size:32px;font-weight:bold;margin:0">+${amount} XOF</p>
-          <p style="color:#7A8F7C;margin-top:8px">Reçu de : <strong style="color:#EEF2EE">${sender}</strong></p>
+          <p style="color:#7A8F7C;margin-top:8px">Reçu de : <strong style="color:#EEF2EE">${escapeHtml(sender)}</strong></p>
         </div>
         <p style="color:#4A5E4C;font-size:12px;margin-top:32px">© 2026 PayWest — Tous droits réservés</p>
       </div>
