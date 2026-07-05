@@ -75,6 +75,14 @@ const payViaQR = async (req, res) => {
     return res.status(400).json({ message: 'QR code manquant' });
   }
 
+  // merchant_id vient brut du body : on le caste et on le rejette s'il
+  // n'est pas un entier, plutôt que de laisser une valeur invalide se
+  // propager jusqu'aux requêtes SQL et au parseInt() plus bas.
+  const merchantId = parseInt(merchant_id, 10);
+  if (!Number.isInteger(merchantId)) {
+    return res.status(400).json({ message: 'Identifiant marchand invalide' });
+  }
+
   const client = await pool.connect();
 
   try {
@@ -83,7 +91,7 @@ const payViaQR = async (req, res) => {
     // Vérifier que le marchand existe
     const merchant = await client.query(
       'SELECT * FROM users WHERE id = $1',
-      [merchant_id]
+      [merchantId]
     );
 
     if (merchant.rows.length === 0) {
@@ -97,7 +105,7 @@ const payViaQR = async (req, res) => {
     const qrRecord = await client.query(
       `SELECT * FROM merchant_qr_codes
        WHERE qr_code = $1 AND merchant_id = $2 AND status = 'active'`,
-      [qr_code, merchant_id]
+      [qr_code, merchantId]
     );
 
     if (qrRecord.rows.length === 0) {
@@ -106,7 +114,7 @@ const payViaQR = async (req, res) => {
     }
 
     // Vérifier que le client ne paie pas lui-même
-    if (parseInt(merchant_id) === req.user.id) {
+    if (merchantId === req.user.id) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Vous ne pouvez pas vous payer vous-même' });
     }
@@ -117,6 +125,12 @@ const payViaQR = async (req, res) => {
       'SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE',
       [req.user.id]
     );
+
+    if (clientWallet.rows.length === 0) {
+      await client.query('ROLLBACK');
+      console.error(`Wallet introuvable pour l'utilisateur ${req.user.id} lors d'un paiement QR`);
+      return res.status(404).json({ message: 'Portefeuille introuvable' });
+    }
 
     if (parseFloat(clientWallet.rows[0].balance) < amount) {
       await client.query('ROLLBACK');
@@ -134,14 +148,14 @@ const payViaQR = async (req, res) => {
     await client.query(
       `UPDATE wallets SET balance = balance + $1, updated_at = NOW()
        WHERE user_id = $2`,
-      [amount, merchant_id]
+      [amount, merchantId]
     );
 
     // Enregistrer la transaction
     const transaction = await client.query(
       `INSERT INTO transactions (sender_id, receiver_id, amount, type, status)
        VALUES ($1, $2, $3, 'payment', 'completed') RETURNING *`,
-      [req.user.id, merchant_id, amount]
+      [req.user.id, merchantId, amount]
     );
 
     await client.query('COMMIT');
