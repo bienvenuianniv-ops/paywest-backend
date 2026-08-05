@@ -5,7 +5,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const sendEmail = async (to, subject, html) => {
   try {
     await resend.emails.send({
-      from: 'PayWest <onboarding@resend.dev>',
+      from: 'PayWest <noreply@mayouservice.com>',
       to,
       subject,
       html
