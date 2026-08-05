@@ -11,7 +11,6 @@ const adminRoutes = require('./routes/adminRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const depositRoutes = require('./routes/depositRoutes');
 const orangeRoutes = require('./routes/orangeRoutes');
-const { generalLimiter, authLimiter, transactionLimiter } = require('./middleware/rateLimiter');
 
 const { authLimiter, generalLimiter } = require('./middleware/rateLimitMiddleware');
 
