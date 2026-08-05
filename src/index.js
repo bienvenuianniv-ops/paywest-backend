@@ -11,6 +11,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const depositRoutes = require('./routes/depositRoutes');
 const orangeRoutes = require('./routes/orangeRoutes');
+const { generalLimiter, authLimiter, transactionLimiter } = require('./middleware/rateLimiter');
 
 const { authLimiter, generalLimiter } = require('./middleware/rateLimitMiddleware');
 
@@ -52,7 +53,7 @@ app.use('/api', generalLimiter); // limite générale sur toute l'API
 // Routes
 app.use('/api/auth', authLimiter, authRoutes); // limite stricte en plus, spécifique à l'auth
 app.use('/api/wallet', walletRoutes);
-app.use('/api/transactions', transactionRoutes);
+app.use('/api/transactions', transactionLimiter, transactionRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/merchant', merchantRoutes);
 app.use('/api/deposit', depositRoutes);
