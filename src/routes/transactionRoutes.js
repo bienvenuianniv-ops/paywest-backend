@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { sendMoney, getTransactions } = require('../controllers/transactionController');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { transferRules, validate } = require('../middleware/validators');
 
 // POST /api/transactions/send - Envoyer de l'argent
-router.post('/send', verifyToken, sendMoney);
+router.post('/send', verifyToken, transferRules, validate, sendMoney);
 
 // GET /api/transactions - Historique des transactions
 router.get('/', verifyToken, getTransactions);

@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { initiateWaveDeposit, confirmWaveDeposit, getDeposits } = require('../controllers/depositController');
 const { verifyToken } = require('../middleware/authMiddleware');
+const { depositRules, validate } = require('../middleware/validators');
 
 // POST /api/deposit/wave - Initier un dépôt Wave
-router.post('/wave', verifyToken, initiateWaveDeposit);
+router.post('/wave', verifyToken, depositRules, validate, initiateWaveDeposit);
 
 // POST /api/deposit/webhook - Webhook Wave (confirmation)
 router.post('/webhook', confirmWaveDeposit);
