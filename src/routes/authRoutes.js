@@ -2,6 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { register, login } = require('../controllers/authController');
 const { registerRules, loginRules, validate } = require('../middleware/validators');
+const { register, login, refreshToken, logout } = require('../controllers/authController');
+
+// POST /api/auth/refresh - Renouveler le token
+router.post('/refresh', refreshToken);
+
+// POST /api/auth/logout - Déconnexion
+router.post('/logout', logout);
 
 /**
  * @swagger

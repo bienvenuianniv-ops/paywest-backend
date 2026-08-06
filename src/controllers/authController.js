@@ -1,8 +1,12 @@
 const pool = require('../config/db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { sendWelcome } = require('./notificationController');
 const logger = require('../config/logger');
+
+// Générer un refresh token aléatoire
+const generateRefreshToken = () => crypto.randomBytes(40).toString('hex');
 
 // INSCRIPTION
 const register = async (req, res) => {
@@ -41,10 +45,21 @@ const register = async (req, res) => {
 
     await client.query('COMMIT');
 
+    // Access token — courte durée
     const token = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '15m' }
+    );
+
+    // Refresh token — longue durée
+    const refreshToken = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 jours
+
+    await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, refreshToken, expiresAt]
     );
 
     try {
@@ -55,7 +70,7 @@ const register = async (req, res) => {
 
     logger.info('Nouvel utilisateur inscrit', { userId: user.id, email: user.email, role: user.role });
 
-    res.status(201).json({ user, token });
+    res.status(201).json({ user, token, refresh_token: refreshToken });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -88,10 +103,21 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
     }
 
+    // Access token — courte durée
     const token = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      { expiresIn: '15m' }
+    );
+
+    // Refresh token — longue durée
+    const refreshToken = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 jours
+
+    await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, refreshToken, expiresAt]
     );
 
     logger.info('Connexion réussie', { userId: user.id, email: user.email, role: user.role });
@@ -104,7 +130,8 @@ const login = async (req, res) => {
         phone: user.phone,
         role: user.role
       },
-      token
+      token,
+      refresh_token: refreshToken
     });
 
   } catch (error) {
@@ -113,4 +140,78 @@ const login = async (req, res) => {
   }
 };
 
-module.exports = { register, login };
+// RENOUVELER LE TOKEN
+const refreshToken = async (req, res) => {
+  const { refresh_token } = req.body;
+
+  if (!refresh_token) {
+    return res.status(400).json({ message: 'Refresh token manquant' });
+  }
+
+  try {
+    // Vérifier que le refresh token existe et n'est pas expiré
+    const result = await pool.query(
+      `SELECT rt.*, u.id as user_id, u.role, u.email, u.full_name, u.phone
+       FROM refresh_tokens rt
+       JOIN users u ON rt.user_id = u.id
+       WHERE rt.token = $1 AND rt.expires_at > NOW()`,
+      [refresh_token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: 'Refresh token invalide ou expiré' });
+    }
+
+    const userData = result.rows[0];
+
+    // Générer un nouveau access token
+    const newToken = jwt.sign(
+      { id: userData.user_id, role: userData.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    // Générer un nouveau refresh token (rotation)
+    const newRefreshToken = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Supprimer l'ancien et insérer le nouveau
+    await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refresh_token]);
+    await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token, expires_at)
+       VALUES ($1, $2, $3)`,
+      [userData.user_id, newRefreshToken, expiresAt]
+    );
+
+    logger.info('Token renouvelé', { userId: userData.user_id });
+
+    res.json({
+      token: newToken,
+      refresh_token: newRefreshToken
+    });
+
+  } catch (error) {
+    logger.error('Erreur refresh token', { error: error.message });
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+};
+
+// DÉCONNEXION
+const logout = async (req, res) => {
+  const { refresh_token } = req.body;
+
+  try {
+    if (refresh_token) {
+      await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refresh_token]);
+    }
+
+    logger.info('Déconnexion', { userId: req.user?.id });
+    res.json({ message: 'Déconnecté avec succès' });
+
+  } catch (error) {
+    logger.error('Erreur déconnexion', { error: error.message });
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+};
+
+module.exports = { register, login, refreshToken, logout };
