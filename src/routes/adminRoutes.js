@@ -3,19 +3,121 @@ const router = express.Router();
 const { getAllUsers, getAllTransactions, getStats, updateUserRole } = require('../controllers/adminController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
-// Toutes les routes admin sont protégées
 const adminOnly = [verifyToken, verifyRole('admin')];
 
-// GET /api/admin/users - Tous les utilisateurs
+/**
+ * @swagger
+ * /api/admin/users:
+ *   get:
+ *     summary: Liste de tous les utilisateurs avec leurs wallets
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste complète des utilisateurs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 allOf:
+ *                   - $ref: '#/components/schemas/User'
+ *                   - type: object
+ *                     properties:
+ *                       balance:
+ *                         type: number
+ *                         example: 48000
+ *                       currency:
+ *                         type: string
+ *                         example: XOF
+ *       403:
+ *         description: Accès refusé — rôle admin requis
+ */
 router.get('/users', adminOnly, getAllUsers);
 
-// GET /api/admin/transactions - Toutes les transactions
+/**
+ * @swagger
+ * /api/admin/transactions:
+ *   get:
+ *     summary: Toutes les transactions de la plateforme
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste complète des transactions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Transaction'
+ */
 router.get('/transactions', adminOnly, getAllTransactions);
 
-// GET /api/admin/stats - Statistiques globales
+/**
+ * @swagger
+ * /api/admin/stats:
+ *   get:
+ *     summary: Statistiques globales de la plateforme
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Statistiques PayWest
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 total_users:
+ *                   type: integer
+ *                   example: 9
+ *                 total_transactions:
+ *                   type: integer
+ *                   example: 23
+ *                 total_volume:
+ *                   type: number
+ *                   example: 89000
+ *                 total_balance:
+ *                   type: number
+ *                   example: 48000
+ */
 router.get('/stats', adminOnly, getStats);
 
-// PUT /api/admin/role - Changer le rôle d'un utilisateur
+/**
+ * @swagger
+ * /api/admin/role:
+ *   put:
+ *     summary: Changer le rôle d'un utilisateur
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [user_id, role]
+ *             properties:
+ *               user_id:
+ *                 type: integer
+ *                 example: 2
+ *               role:
+ *                 type: string
+ *                 enum: [customer, merchant, agent, admin]
+ *                 example: merchant
+ *     responses:
+ *       200:
+ *         description: Rôle mis à jour avec succès
+ *       400:
+ *         description: Rôle invalide
+ *       404:
+ *         description: Utilisateur non trouvé
+ */
 router.put('/role', adminOnly, updateUserRole);
 
 module.exports = router;

@@ -3,16 +3,90 @@ const router = express.Router();
 const { creditClient, withdrawClient, getAgentHistory } = require('../controllers/agentController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
-// Seuls les agents et admins peuvent accéder
 const agentOnly = [verifyToken, verifyRole('agent', 'admin')];
 
-// POST /api/agent/credit - Recharger le wallet d'un client
+/**
+ * @swagger
+ * /api/agent/credit:
+ *   post:
+ *     summary: Recharger le wallet d'un client en cash
+ *     tags: [Agent]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [client_phone, amount]
+ *             properties:
+ *               client_phone:
+ *                 type: string
+ *                 example: "+221770000001"
+ *               amount:
+ *                 type: integer
+ *                 example: 5000
+ *     responses:
+ *       200:
+ *         description: Wallet rechargé avec succès
+ *       404:
+ *         description: Client non trouvé
+ *       403:
+ *         description: Accès refusé — rôle agent ou admin requis
+ */
 router.post('/credit', agentOnly, creditClient);
 
-// POST /api/agent/withdraw - Retrait pour un client
+/**
+ * @swagger
+ * /api/agent/withdraw:
+ *   post:
+ *     summary: Effectuer un retrait cash pour un client
+ *     tags: [Agent]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [client_phone, amount]
+ *             properties:
+ *               client_phone:
+ *                 type: string
+ *                 example: "+221770000001"
+ *               amount:
+ *                 type: integer
+ *                 example: 2000
+ *     responses:
+ *       200:
+ *         description: Retrait effectué avec succès
+ *       400:
+ *         description: Solde client insuffisant
+ *       404:
+ *         description: Client non trouvé
+ */
 router.post('/withdraw', agentOnly, withdrawClient);
 
-// GET /api/agent/history - Historique des opérations
+/**
+ * @swagger
+ * /api/agent/history:
+ *   get:
+ *     summary: Historique des opérations de l'agent
+ *     tags: [Agent]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des opérations effectuées
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Transaction'
+ */
 router.get('/history', agentOnly, getAgentHistory);
 
 module.exports = router;
