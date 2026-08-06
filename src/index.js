@@ -11,6 +11,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const merchantRoutes = require('./routes/merchantRoutes');
 const depositRoutes = require('./routes/depositRoutes');
 const orangeRoutes = require('./routes/orangeRoutes');
+const agentRoutes = require('./routes/agentRoutes');
 const merchantDashRoutes = require('./routes/merchantDashRoutes');
 
 // Import rate limiter
@@ -53,6 +54,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/merchant', merchantRoutes);
 app.use('/api/deposit', depositRoutes);
 app.use('/api/orange', orangeRoutes);
+app.use('/api/agent', agentRoutes);
 app.use('/api/merchant-dash', merchantDashRoutes);
 
 // Route de test
