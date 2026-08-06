@@ -1,14 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { register, login } = require('../controllers/authController');
-const { registerRules, loginRules, validate } = require('../middleware/validators');
 const { register, login, refreshToken, logout } = require('../controllers/authController');
-
-// POST /api/auth/refresh - Renouveler le token
-router.post('/refresh', refreshToken);
-
-// POST /api/auth/logout - Déconnexion
-router.post('/logout', logout);
+const { registerRules, loginRules, validate } = require('../middleware/validators');
 
 /**
  * @swagger
@@ -68,10 +61,60 @@ router.post('/register', registerRules, validate, register);
  *                 example: "123456"
  *     responses:
  *       200:
- *         description: Connexion réussie — retourne le token JWT
+ *         description: Connexion réussie — retourne le token JWT et le refresh token
  *       401:
  *         description: Email ou mot de passe incorrect
  */
 router.post('/login', loginRules, validate, login);
+
+/**
+ * @swagger
+ * /api/auth/refresh:
+ *   post:
+ *     summary: Renouveler le token JWT
+ *     tags: [Authentification]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refresh_token]
+ *             properties:
+ *               refresh_token:
+ *                 type: string
+ *                 example: "abc123..."
+ *     responses:
+ *       200:
+ *         description: Nouveau token généré
+ *       401:
+ *         description: Refresh token invalide ou expiré
+ */
+router.post('/refresh', refreshToken);
+
+/**
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     summary: Se déconnecter
+ *     tags: [Authentification]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [refresh_token]
+ *             properties:
+ *               refresh_token:
+ *                 type: string
+ *                 example: "abc123..."
+ *     responses:
+ *       200:
+ *         description: Déconnecté avec succès
+ */
+router.post('/logout', logout);
 
 module.exports = router;
