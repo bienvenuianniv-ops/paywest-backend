@@ -102,22 +102,58 @@ const sendMoney = async (req, res) => {
   }
 };
 
-// Historique des transactions
+// Historique des transactions avec pagination
 const getTransactions = async (req, res) => {
   try {
+    // Paramètres de pagination depuis la query string
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+    const offset = (page - 1) * limit;
+    const type = req.query.type || null; // filtre optionnel par type
+
+    // Construire la condition de filtre
+    let whereClause = 'WHERE (t.sender_id = $1 OR t.receiver_id = $1)';
+    const params = [req.user.id];
+
+    if (type) {
+      params.push(type);
+      whereClause += ` AND t.type = $${params.length}`;
+    }
+
+    // Compter le total
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM transactions t ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(total / limit);
+
+    // Récupérer les transactions paginées
+    params.push(limit, offset);
     const result = await pool.query(
-      `SELECT t.*, 
+      `SELECT t.*,
               s.full_name as sender_name, s.phone as sender_phone,
               r.full_name as receiver_name, r.phone as receiver_phone
        FROM transactions t
        JOIN users s ON t.sender_id = s.id
        JOIN users r ON t.receiver_id = r.id
-       WHERE t.sender_id = $1 OR t.receiver_id = $1
-       ORDER BY t.created_at DESC`,
-      [req.user.id]
+       ${whereClause}
+       ORDER BY t.created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
     );
 
-    res.json(result.rows);
+    res.json({
+      data: result.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        total_pages: totalPages,
+        has_next: page < totalPages,
+        has_prev: page > 1
+      }
+    });
 
   } catch (error) {
     logger.error('Erreur historique transactions', { error: error.message });
