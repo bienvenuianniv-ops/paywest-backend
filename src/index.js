@@ -13,6 +13,8 @@ const depositRoutes = require('./routes/depositRoutes');
 const orangeRoutes = require('./routes/orangeRoutes');
 const agentRoutes = require('./routes/agentRoutes');
 const merchantDashRoutes = require('./routes/merchantDashRoutes');
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./config/swagger');
 
 // Import rate limiter
 const { generalLimiter, authLimiter, transactionLimiter } = require('./middleware/rateLimiter');
@@ -61,7 +63,12 @@ app.use('/api/merchant-dash', merchantDashRoutes);
 app.get('/', (req, res) => {
   res.json({ message: 'PayWest API is running 🚀' });
 });
-
+// Documentation API
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'PayWest API Docs',
+  customCss: '.swagger-ui .topbar { background-color: #0EAD69; }',
+  customfavIcon: 'https://pay.mayouservice.com/favicon.ico'
+}));
 // Handler d'erreur global
 app.use((err, req, res, next) => {
   console.error('Erreur non gérée:', err.message);
