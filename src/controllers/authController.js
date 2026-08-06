@@ -46,20 +46,20 @@ const register = async (req, res) => {
     await client.query('COMMIT');
 
     // Access token — courte durée
-    const token = jwt.sign(
+    const accessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
     // Refresh token — longue durée
-    const refreshToken = generateRefreshToken();
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 jours
+    const newRefreshToken = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     await pool.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, refreshToken, expiresAt]
+      [user.id, newRefreshToken, expiresAt]
     );
 
     try {
@@ -70,7 +70,7 @@ const register = async (req, res) => {
 
     logger.info('Nouvel utilisateur inscrit', { userId: user.id, email: user.email, role: user.role });
 
-    res.status(201).json({ user, token, refresh_token: refreshToken });
+    res.status(201).json({ user, token: accessToken, refresh_token: newRefreshToken });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -104,20 +104,20 @@ const login = async (req, res) => {
     }
 
     // Access token — courte durée
-    const token = jwt.sign(
+    const accessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
     // Refresh token — longue durée
-    const refreshToken = generateRefreshToken();
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 jours
+    const newRefreshToken = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     await pool.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
-      [user.id, refreshToken, expiresAt]
+      [user.id, newRefreshToken, expiresAt]
     );
 
     logger.info('Connexion réussie', { userId: user.id, email: user.email, role: user.role });
@@ -130,8 +130,8 @@ const login = async (req, res) => {
         phone: user.phone,
         role: user.role
       },
-      token,
-      refresh_token: refreshToken
+      token: accessToken,
+      refresh_token: newRefreshToken
     });
 
   } catch (error) {
@@ -149,7 +149,6 @@ const refreshToken = async (req, res) => {
   }
 
   try {
-    // Vérifier que le refresh token existe et n'est pas expiré
     const result = await pool.query(
       `SELECT rt.*, u.id as user_id, u.role, u.email, u.full_name, u.phone
        FROM refresh_tokens rt
@@ -164,18 +163,17 @@ const refreshToken = async (req, res) => {
 
     const userData = result.rows[0];
 
-    // Générer un nouveau access token
-    const newToken = jwt.sign(
+    // Nouveau access token
+    const newAccessToken = jwt.sign(
       { id: userData.user_id, role: userData.role },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    // Générer un nouveau refresh token (rotation)
+    // Nouveau refresh token (rotation)
     const newRefreshToken = generateRefreshToken();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    // Supprimer l'ancien et insérer le nouveau
     await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refresh_token]);
     await pool.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
@@ -186,7 +184,7 @@ const refreshToken = async (req, res) => {
     logger.info('Token renouvelé', { userId: userData.user_id });
 
     res.json({
-      token: newToken,
+      token: newAccessToken,
       refresh_token: newRefreshToken
     });
 
