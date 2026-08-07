@@ -11,7 +11,10 @@ const sms = africastalking.SMS;
 const sendSMS = async (to, message) => {
   try {
     // Formater le numéro avec indicatif international
-    const phone = to.startsWith('+') ? to : `+${to}`;
+    let phone = to.replace(/\s/g, '');
+if (!phone.startsWith('+')) {
+  phone = '+221' + phone;
+}
 
     const result = await sms.send({
   to: [phone],
