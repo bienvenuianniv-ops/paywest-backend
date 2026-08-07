@@ -3,6 +3,7 @@ const router = express.Router();
 const { sendMoney, getTransactions } = require('../controllers/transactionController');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { transferRules, validate } = require('../middleware/validators');
+const { checkTransactionLimits } = require('../middleware/transactionLimits');
 
 /**
  * @swagger
@@ -30,11 +31,11 @@ const { transferRules, validate } = require('../middleware/validators');
  *       200:
  *         description: Transfert effectué avec succès
  *       400:
- *         description: Solde insuffisant ou montant invalide
+ *         description: Solde insuffisant, montant invalide ou limite dépassée
  *       404:
  *         description: Destinataire non trouvé
  */
-router.post('/send', verifyToken, transferRules, validate, sendMoney);
+router.post('/send', verifyToken, transferRules, validate, checkTransactionLimits, sendMoney);
 
 /**
  * @swagger
@@ -44,15 +45,24 @@ router.post('/send', verifyToken, transferRules, validate, sendMoney);
  *     tags: [Transactions]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         example: 20
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
- *         description: Liste des transactions
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Transaction'
+ *         description: Liste paginée des transactions
  */
 router.get('/', verifyToken, getTransactions);
 
