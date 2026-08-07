@@ -119,5 +119,9 @@ router.get('/stats', adminOnly, getStats);
  *         description: Utilisateur non trouvé
  */
 router.put('/role', adminOnly, updateUserRole);
+const { getAllUsers, getAllTransactions, getStats, updateUserRole, suspendUser } = require('../controllers/adminController');
+
+// DELETE /api/admin/users/:user_id/suspend
+router.put('/users/:user_id/suspend', adminOnly, suspendUser);
 
 module.exports = router;
