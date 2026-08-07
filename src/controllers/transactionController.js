@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const { sendTransferNotification } = require('./notificationController');
+const { sendTransferSMS } = require('../config/sms');
 const logger = require('../config/logger');
 
 // Envoyer de l'argent
@@ -76,6 +77,7 @@ const sendMoney = async (req, res) => {
       transactionId: transaction.rows[0].id
     });
 
+    // Notifications email
     try {
       await sendTransferNotification(
         senderInfo.rows[0].email,
@@ -85,7 +87,20 @@ const sendMoney = async (req, res) => {
         amount
       );
     } catch (mailError) {
-      logger.error('Notification transfert non envoyée', { error: mailError.message });
+      logger.error('Notification email transfert non envoyée', { error: mailError.message });
+    }
+
+    // Notifications SMS
+    try {
+      await sendTransferSMS(
+        senderInfo.rows[0].phone,
+        receiver.phone,
+        senderInfo.rows[0].full_name,
+        receiver.full_name,
+        amount
+      );
+    } catch (smsError) {
+      logger.error('Notification SMS transfert non envoyée', { error: smsError.message });
     }
 
     res.json({
@@ -105,13 +120,11 @@ const sendMoney = async (req, res) => {
 // Historique des transactions avec pagination
 const getTransactions = async (req, res) => {
   try {
-    // Paramètres de pagination depuis la query string
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
     const offset = (page - 1) * limit;
-    const type = req.query.type || null; // filtre optionnel par type
+    const type = req.query.type || null;
 
-    // Construire la condition de filtre
     let whereClause = 'WHERE (t.sender_id = $1 OR t.receiver_id = $1)';
     const params = [req.user.id];
 
@@ -120,7 +133,6 @@ const getTransactions = async (req, res) => {
       whereClause += ` AND t.type = $${params.length}`;
     }
 
-    // Compter le total
     const countResult = await pool.query(
       `SELECT COUNT(*) FROM transactions t ${whereClause}`,
       params
@@ -128,7 +140,6 @@ const getTransactions = async (req, res) => {
     const total = parseInt(countResult.rows[0].count);
     const totalPages = Math.ceil(total / limit);
 
-    // Récupérer les transactions paginées
     params.push(limit, offset);
     const result = await pool.query(
       `SELECT t.*,

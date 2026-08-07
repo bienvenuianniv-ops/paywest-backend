@@ -3,9 +3,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendWelcome } = require('./notificationController');
+const { sendWelcomeSMS } = require('../config/sms');
 const logger = require('../config/logger');
 
-// Générer un refresh token aléatoire
 const generateRefreshToken = () => crypto.randomBytes(40).toString('hex');
 
 // INSCRIPTION
@@ -45,14 +45,12 @@ const register = async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Access token — courte durée
     const accessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    // Refresh token — longue durée
     const newRefreshToken = generateRefreshToken();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
@@ -66,6 +64,12 @@ const register = async (req, res) => {
       await sendWelcome(user.email, user.full_name);
     } catch (mailError) {
       console.error('Email de bienvenue non envoyé:', mailError.message);
+    }
+
+    try {
+      await sendWelcomeSMS(user.phone, user.full_name);
+    } catch (smsError) {
+      logger.error('SMS de bienvenue non envoyé', { error: smsError.message });
     }
 
     logger.info('Nouvel utilisateur inscrit', { userId: user.id, email: user.email, role: user.role });
@@ -103,14 +107,12 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Email ou mot de passe incorrect' });
     }
 
-    // Access token — courte durée
     const accessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    // Refresh token — longue durée
     const newRefreshToken = generateRefreshToken();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
@@ -163,14 +165,12 @@ const refreshToken = async (req, res) => {
 
     const userData = result.rows[0];
 
-    // Nouveau access token
     const newAccessToken = jwt.sign(
       { id: userData.user_id, role: userData.role },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
 
-    // Nouveau refresh token (rotation)
     const newRefreshToken = generateRefreshToken();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
