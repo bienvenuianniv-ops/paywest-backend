@@ -15,6 +15,7 @@ const agentRoutes = require('./routes/agentRoutes');
 const merchantDashRoutes = require('./routes/merchantDashRoutes');
 const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
+const withdrawRoutes = require('./routes/withdrawRoutes');
 
 // Import rate limiter
 const { generalLimiter, authLimiter, transactionLimiter } = require('./middleware/rateLimiter');
@@ -58,6 +59,7 @@ app.use('/api/deposit', depositRoutes);
 app.use('/api/orange', orangeRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/merchant-dash', merchantDashRoutes);
+app.use('/api/withdraw', withdrawRoutes);
 
 // Route de test
 app.get('/', (req, res) => {
