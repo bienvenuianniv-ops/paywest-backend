@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getAllUsers, getAllTransactions, getStats, updateUserRole } = require('../controllers/adminController');
+const { getAllUsers, getAllTransactions, getStats, updateUserRole, suspendUser } = require('../controllers/adminController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 
 const adminOnly = [verifyToken, verifyRole('admin')];
@@ -15,22 +15,7 @@ const adminOnly = [verifyToken, verifyRole('admin')];
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Liste complète des utilisateurs
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 allOf:
- *                   - $ref: '#/components/schemas/User'
- *                   - type: object
- *                     properties:
- *                       balance:
- *                         type: number
- *                         example: 48000
- *                       currency:
- *                         type: string
- *                         example: XOF
+ *         description: Liste complète des utilisateurs paginée
  *       403:
  *         description: Accès refusé — rôle admin requis
  */
@@ -44,15 +29,22 @@ router.get('/users', adminOnly, getAllUsers);
  *     tags: [Administration]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [transfer, credit, payment, deposit, withdraw]
+ *         description: Filtrer par type
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [pending, completed, failed]
+ *         description: Filtrer par statut
  *     responses:
  *       200:
- *         description: Liste complète des transactions
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Transaction'
+ *         description: Liste complète des transactions paginée
  */
 router.get('/transactions', adminOnly, getAllTransactions);
 
@@ -60,30 +52,13 @@ router.get('/transactions', adminOnly, getAllTransactions);
  * @swagger
  * /api/admin/stats:
  *   get:
- *     summary: Statistiques globales de la plateforme
+ *     summary: Statistiques globales avancées de la plateforme
  *     tags: [Administration]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Statistiques PayWest
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 total_users:
- *                   type: integer
- *                   example: 9
- *                 total_transactions:
- *                   type: integer
- *                   example: 23
- *                 total_volume:
- *                   type: number
- *                   example: 89000
- *                 total_balance:
- *                   type: number
- *                   example: 48000
+ *         description: Statistiques PayWest complètes
  */
 router.get('/stats', adminOnly, getStats);
 
@@ -119,9 +94,28 @@ router.get('/stats', adminOnly, getStats);
  *         description: Utilisateur non trouvé
  */
 router.put('/role', adminOnly, updateUserRole);
-const { getAllUsers, getAllTransactions, getStats, updateUserRole, suspendUser } = require('../controllers/adminController');
 
-// DELETE /api/admin/users/:user_id/suspend
+/**
+ * @swagger
+ * /api/admin/users/{user_id}/suspend:
+ *   put:
+ *     summary: Suspendre un utilisateur
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: user_id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         example: 2
+ *     responses:
+ *       200:
+ *         description: Utilisateur suspendu avec succès
+ *       404:
+ *         description: Utilisateur non trouvé
+ */
 router.put('/users/:user_id/suspend', adminOnly, suspendUser);
 
 module.exports = router;
