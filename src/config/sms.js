@@ -14,10 +14,9 @@ const sendSMS = async (to, message) => {
     const phone = to.startsWith('+') ? to : `+${to}`;
 
     const result = await sms.send({
-      to: [phone],
-      message,
-      from: 'PayWest'
-    });
+  to: [phone],
+  message
+});
 
     logger.info('SMS envoyé', { to: phone, status: result.SMSMessageData?.Message });
     return result;
