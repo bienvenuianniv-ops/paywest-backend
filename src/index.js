@@ -18,6 +18,7 @@ const swaggerSpec = require('./config/swagger');
 const withdrawRoutes = require('./routes/withdrawRoutes');
 const currencyRoutes = require('./routes/currencyRoutes');
 const kycRoutes = require('./routes/kycRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 
 // Import rate limiter
 const { generalLimiter, authLimiter, transactionLimiter } = require('./middleware/rateLimiter');
@@ -64,6 +65,7 @@ app.use('/api/merchant-dash', merchantDashRoutes);
 app.use('/api/withdraw', withdrawRoutes);
 app.use('/api/currency', currencyRoutes);
 app.use('/api/kyc', kycRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Route de test
 app.get('/', (req, res) => {
