@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getAllUsers, getAllTransactions, getStats, updateUserRole, suspendUser } = require('../controllers/adminController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
+const auditLog = require('../middleware/auditLog');
 
 const adminOnly = [verifyToken, verifyRole('admin')];
 
@@ -19,7 +20,7 @@ const adminOnly = [verifyToken, verifyRole('admin')];
  *       403:
  *         description: Accès refusé — rôle admin requis
  */
-router.get('/users', adminOnly, getAllUsers);
+router.get('/users', adminOnly, auditLog('admin_list_users'), getAllUsers);
 
 /**
  * @swagger
@@ -46,7 +47,7 @@ router.get('/users', adminOnly, getAllUsers);
  *       200:
  *         description: Liste complète des transactions paginée
  */
-router.get('/transactions', adminOnly, getAllTransactions);
+router.get('/transactions', adminOnly, auditLog('admin_list_transactions'), getAllTransactions);
 
 /**
  * @swagger
@@ -60,7 +61,7 @@ router.get('/transactions', adminOnly, getAllTransactions);
  *       200:
  *         description: Statistiques PayWest complètes
  */
-router.get('/stats', adminOnly, getStats);
+router.get('/stats', adminOnly, auditLog('admin_view_stats'), getStats);
 
 /**
  * @swagger
@@ -93,7 +94,7 @@ router.get('/stats', adminOnly, getStats);
  *       404:
  *         description: Utilisateur non trouvé
  */
-router.put('/role', adminOnly, updateUserRole);
+router.put('/role', adminOnly, auditLog('admin_change_role'), updateUserRole);
 
 /**
  * @swagger
@@ -116,6 +117,6 @@ router.put('/role', adminOnly, updateUserRole);
  *       404:
  *         description: Utilisateur non trouvé
  */
-router.put('/users/:user_id/suspend', adminOnly, suspendUser);
+router.put('/users/:user_id/suspend', adminOnly, auditLog('admin_suspend_user'), suspendUser);
 
 module.exports = router;
