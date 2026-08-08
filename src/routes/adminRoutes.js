@@ -3,6 +3,7 @@ const router = express.Router();
 const { getAllUsers, getAllTransactions, getStats, updateUserRole, suspendUser } = require('../controllers/adminController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 const auditLog = require('../middleware/auditLog');
+const pool = require('../config/db');
 
 const adminOnly = [verifyToken, verifyRole('admin')];
 
@@ -118,5 +119,32 @@ router.put('/role', adminOnly, auditLog('admin_change_role'), updateUserRole);
  *         description: Utilisateur non trouvé
  */
 router.put('/users/:user_id/suspend', adminOnly, auditLog('admin_suspend_user'), suspendUser);
+
+/**
+ * @swagger
+ * /api/admin/audit:
+ *   get:
+ *     summary: Historique d'audit des actions admin
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des 100 dernières actions admin
+ */
+router.get('/audit', adminOnly, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT a.*, u.email, u.full_name
+       FROM audit_logs a
+       JOIN users u ON a.user_id = u.id
+       ORDER BY a.created_at DESC
+       LIMIT 100`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+});
 
 module.exports = router;
