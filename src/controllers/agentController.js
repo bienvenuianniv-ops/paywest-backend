@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const logger = require('../config/logger');
+const { phoneVariants } = require('../utils/phoneHelper');
 
 // Recharger le wallet d'un client
 const creditClient = async (req, res) => {
@@ -15,10 +16,11 @@ const creditClient = async (req, res) => {
     await client.query('BEGIN');
 
     // Trouver le client par téléphone
-    const clientUser = await client.query(
-      'SELECT * FROM users WHERE phone = $1',
-      [client_phone]
-    );
+   const variants = phoneVariants(client_phone);
+const clientUser = await client.query(
+  'SELECT * FROM users WHERE phone = ANY($1)',
+  [variants]
+);
 
     if (clientUser.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -86,10 +88,11 @@ const withdrawClient = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Trouver le client
+   // Trouver le client
+    const variants = phoneVariants(client_phone);
     const clientUser = await client.query(
-      'SELECT * FROM users WHERE phone = $1',
-      [client_phone]
+      'SELECT * FROM users WHERE phone = ANY($1)',
+      [variants]
     );
 
     if (clientUser.rows.length === 0) {

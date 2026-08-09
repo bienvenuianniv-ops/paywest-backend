@@ -2,6 +2,7 @@ const pool = require('../config/db');
 const { sendTransferNotification } = require('./notificationController');
 const { sendTransferSMS } = require('../config/sms');
 const logger = require('../config/logger');
+const { phoneVariants } = require('../utils/phoneHelper');
 
 // Envoyer de l'argent
 const sendMoney = async (req, res) => {
@@ -17,10 +18,11 @@ const sendMoney = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const receiverResult = await client.query(
-      'SELECT * FROM users WHERE phone = $1',
-      [receiver_phone]
-    );
+  const variants = phoneVariants(receiver_phone);
+const receiverResult = await client.query(
+  `SELECT * FROM users WHERE phone = ANY($1)`,
+  [variants]
+);
 
     if (receiverResult.rows.length === 0) {
       await client.query('ROLLBACK');
