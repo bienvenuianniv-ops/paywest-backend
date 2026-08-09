@@ -66,7 +66,8 @@ describe('Transactions', () => {
         .get('/api/transactions')
         .set('Authorization', `Bearer ${token}`);
       expect(res.statusCode).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveProperty('data');
+expect(Array.isArray(res.body.data)).toBe(true);
     });
   });
 
