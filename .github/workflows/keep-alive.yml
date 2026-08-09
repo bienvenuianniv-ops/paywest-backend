@@ -1,0 +1,19 @@
+name: Keep Render service awake
+
+on:
+  schedule:
+    # Toutes les 10 minutes — sous le seuil de 15 min de mise en veille du plan gratuit Render
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping l'API PayWest
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 300 https://paywest-backend-1.onrender.com/)
+          echo "Statut HTTP: $status"
+          if [ "$status" != "200" ]; then
+            echo "::warning::Le ping a renvoye un statut $status au lieu de 200"
+          fi
