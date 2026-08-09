@@ -92,6 +92,8 @@ NODE_ENV=production
 | GET | /api/merchant/qrcode | Générer un QR code |
 | POST | /api/deposit/wave | Dépôt Wave |
 | POST | /api/withdraw/wave | Retrait Wave |
+| POST | /api/withdraw/webhook/wave | Webhook confirmation retrait Wave |
+| POST | /api/withdraw/webhook/orange | Webhook confirmation retrait Orange Money |
 | GET | /api/admin/stats | Statistiques admin |
 | GET | /api/reports/export | Export Excel |
 
