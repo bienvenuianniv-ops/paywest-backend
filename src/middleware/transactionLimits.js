@@ -29,7 +29,7 @@ const LIMITS = {
 };
 
 const checkTransactionLimits = async (req, res, next) => {
-  const { amount } = req.body;
+  const amount = Number(req.body.amount);
   const userId = req.user.id;
   const role = req.user.role;
 
@@ -39,6 +39,10 @@ const checkTransactionLimits = async (req, res, next) => {
       'SELECT * FROM users WHERE id = $1',
       [userId]
     );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
 
     const user = userResult.rows[0];
     const limits = LIMITS[role] || LIMITS.customer;

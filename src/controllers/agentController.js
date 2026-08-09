@@ -108,6 +108,11 @@ const withdrawClient = async (req, res) => {
       [targetUser.id]
     );
 
+    if (clientWallet.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Portefeuille client introuvable' });
+    }
+
     if (parseFloat(clientWallet.rows[0].balance) < amount) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Solde client insuffisant' });

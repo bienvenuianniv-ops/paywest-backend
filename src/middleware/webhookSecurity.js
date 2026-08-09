@@ -26,10 +26,11 @@ const verifyWaveWebhook = (req, res, next) => {
       .digest('hex');
 
     // Comparer les signatures de manière sécurisée
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    const signatureBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    const isValid = signatureBuffer.length === expectedBuffer.length &&
+      crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
 
     if (!isValid) {
       logger.warn('Webhook Wave rejeté — signature invalide');
@@ -70,10 +71,11 @@ const verifyOrangeWebhook = (req, res, next) => {
       .digest('hex');
 
     // Comparer les signatures de manière sécurisée
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    const signatureBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    const isValid = signatureBuffer.length === expectedBuffer.length &&
+      crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
 
     if (!isValid) {
       logger.warn('Webhook Orange rejeté — signature invalide');

@@ -18,9 +18,10 @@ const getRates = async (req, res) => {
 
 // Convertir un montant
 const convertAmount = async (req, res) => {
-  const { amount, from_currency, to_currency } = req.body;
+  const { from_currency, to_currency } = req.body;
+  const amount = Number(req.body.amount);
 
-  if (!amount || amount <= 0) {
+  if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ message: 'Montant invalide' });
   }
 

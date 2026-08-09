@@ -3,6 +3,7 @@ const router = express.Router();
 const { withdrawToWave, withdrawToOrange, confirmWithdraw, getWithdrawals } = require('../controllers/withdrawController');
 const { verifyToken } = require('../middleware/authMiddleware');
 const { depositRules, validate } = require('../middleware/validators');
+const { checkTransactionLimits } = require('../middleware/transactionLimits');
 const { verifyWaveWebhook } = require('../middleware/webhookSecurity');
 
 /**
@@ -33,7 +34,7 @@ const { verifyWaveWebhook } = require('../middleware/webhookSecurity');
  *       400:
  *         description: Solde insuffisant
  */
-router.post('/wave', verifyToken, depositRules, validate, withdrawToWave);
+router.post('/wave', verifyToken, depositRules, validate, checkTransactionLimits, withdrawToWave);
 
 /**
  * @swagger
@@ -63,7 +64,7 @@ router.post('/wave', verifyToken, depositRules, validate, withdrawToWave);
  *       400:
  *         description: Solde insuffisant
  */
-router.post('/orange', verifyToken, depositRules, validate, withdrawToOrange);
+router.post('/orange', verifyToken, depositRules, validate, checkTransactionLimits, withdrawToOrange);
 
 /**
  * @swagger
