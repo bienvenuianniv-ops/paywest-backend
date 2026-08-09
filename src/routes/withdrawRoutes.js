@@ -4,7 +4,7 @@ const { withdrawToWave, withdrawToOrange, confirmWithdraw, getWithdrawals } = re
 const { verifyToken } = require('../middleware/authMiddleware');
 const { depositRules, validate } = require('../middleware/validators');
 const { checkTransactionLimits } = require('../middleware/transactionLimits');
-const { verifyWaveWebhook } = require('../middleware/webhookSecurity');
+const { verifyWaveWebhook, verifyOrangeWebhook } = require('../middleware/webhookSecurity');
 
 /**
  * @swagger
@@ -68,16 +68,29 @@ router.post('/orange', verifyToken, depositRules, validate, checkTransactionLimi
 
 /**
  * @swagger
- * /api/withdraw/webhook:
+ * /api/withdraw/webhook/wave:
  *   post:
- *     summary: Webhook — confirmer ou annuler un retrait
+ *     summary: Webhook Wave — confirmer ou annuler un retrait
  *     tags: [Dépôts]
  *     security: []
  *     responses:
  *       200:
  *         description: Retrait confirmé ou remboursé
  */
-router.post('/webhook', verifyWaveWebhook, confirmWithdraw);
+router.post('/webhook/wave', verifyWaveWebhook, confirmWithdraw);
+
+/**
+ * @swagger
+ * /api/withdraw/webhook/orange:
+ *   post:
+ *     summary: Webhook Orange Money — confirmer ou annuler un retrait
+ *     tags: [Dépôts]
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Retrait confirmé ou remboursé
+ */
+router.post('/webhook/orange', verifyOrangeWebhook, confirmWithdraw);
 
 /**
  * @swagger

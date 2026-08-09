@@ -43,8 +43,6 @@ const register = async (req, res) => {
       [user.id]
     );
 
-    await client.query('COMMIT');
-
     const accessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
@@ -54,11 +52,13 @@ const register = async (req, res) => {
     const newRefreshToken = generateRefreshToken();
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    await pool.query(
+    await client.query(
       `INSERT INTO refresh_tokens (user_id, token, expires_at)
        VALUES ($1, $2, $3)`,
       [user.id, newRefreshToken, expiresAt]
     );
+
+    await client.query('COMMIT');
 
     try {
       await sendWelcome(user.email, user.full_name);

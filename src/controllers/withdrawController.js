@@ -20,6 +20,11 @@ const withdrawToWave = async (req, res) => {
       [req.user.id]
     );
 
+    if (wallet.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Portefeuille introuvable' });
+    }
+
     if (parseFloat(wallet.rows[0].balance) < amount) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Solde insuffisant' });
@@ -92,6 +97,11 @@ const withdrawToOrange = async (req, res) => {
       [req.user.id]
     );
 
+    if (wallet.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Portefeuille introuvable' });
+    }
+
     if (parseFloat(wallet.rows[0].balance) < amount) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Solde insuffisant' });
@@ -148,39 +158,58 @@ const withdrawToOrange = async (req, res) => {
 // Confirmer un retrait via webhook
 const confirmWithdraw = async (req, res) => {
   const { reference, transaction_id, status } = req.body;
+  const newStatus = status === 'completed' ? 'completed' : 'failed';
+
+  const client = await pool.connect();
 
   try {
-    const newStatus = status === 'completed' ? 'completed' : 'failed';
+    await client.query('BEGIN');
+
+    // Verrouiller la ligne : un webhook rejoue en parallele doit attendre
+    // la fin de celui-ci avant de relire le statut, sinon deux appels
+    // concurrents peuvent tous deux rembourser le meme retrait echoue.
+    const tx = await client.query(
+      'SELECT * FROM transactions WHERE id = $1 FOR UPDATE',
+      [transaction_id]
+    );
+
+    if (tx.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Transaction non trouvée' });
+    }
+
+    if (tx.rows[0].status !== 'pending') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Retrait déjà traité' });
+    }
 
     // Si le retrait a échoué, rembourser le wallet
     if (newStatus === 'failed') {
-      const tx = await pool.query(
-        'SELECT * FROM transactions WHERE id = $1',
-        [transaction_id]
+      await client.query(
+        `UPDATE wallets SET balance = balance + $1, updated_at = NOW()
+         WHERE user_id = $2`,
+        [tx.rows[0].amount, tx.rows[0].sender_id]
       );
-
-      if (tx.rows.length > 0) {
-        await pool.query(
-          `UPDATE wallets SET balance = balance + $1, updated_at = NOW()
-           WHERE user_id = $2`,
-          [tx.rows[0].amount, tx.rows[0].sender_id]
-        );
-      }
     }
 
     // Mettre à jour le statut
-    await pool.query(
+    await client.query(
       'UPDATE transactions SET status = $1 WHERE id = $2',
       [newStatus, transaction_id]
     );
+
+    await client.query('COMMIT');
 
     logger.info('Retrait confirmé', { reference, transaction_id, status: newStatus });
 
     res.json({ message: `Retrait ${newStatus === 'completed' ? 'confirmé' : 'échoué et remboursé'}` });
 
   } catch (error) {
+    await client.query('ROLLBACK');
     logger.error('Erreur confirmation retrait', { error: error.message });
     res.status(500).json({ message: 'Erreur serveur' });
+  } finally {
+    client.release();
   }
 };
 

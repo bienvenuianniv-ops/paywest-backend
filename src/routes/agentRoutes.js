@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { creditClient, withdrawClient, getAgentHistory } = require('../controllers/agentController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
+const { checkTransactionLimits } = require('../middleware/transactionLimits');
 
 const agentOnly = [verifyToken, verifyRole('agent', 'admin')];
 
@@ -35,7 +36,7 @@ const agentOnly = [verifyToken, verifyRole('agent', 'admin')];
  *       403:
  *         description: Accès refusé — rôle agent ou admin requis
  */
-router.post('/credit', agentOnly, creditClient);
+router.post('/credit', agentOnly, checkTransactionLimits, creditClient);
 
 /**
  * @swagger
@@ -67,7 +68,7 @@ router.post('/credit', agentOnly, creditClient);
  *       404:
  *         description: Client non trouvé
  */
-router.post('/withdraw', agentOnly, withdrawClient);
+router.post('/withdraw', agentOnly, checkTransactionLimits, withdrawClient);
 
 /**
  * @swagger

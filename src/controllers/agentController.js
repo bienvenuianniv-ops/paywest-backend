@@ -4,9 +4,10 @@ const { phoneVariants } = require('../utils/phoneHelper');
 
 // Recharger le wallet d'un client
 const creditClient = async (req, res) => {
-  const { client_phone, amount } = req.body;
+  const { client_phone } = req.body;
+  const amount = Number(req.body.amount);
 
-  if (!amount || amount <= 0) {
+  if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ message: 'Montant invalide' });
   }
 
@@ -77,9 +78,10 @@ const clientUser = await client.query(
 
 // Retrait pour un client
 const withdrawClient = async (req, res) => {
-  const { client_phone, amount } = req.body;
+  const { client_phone } = req.body;
+  const amount = Number(req.body.amount);
 
-  if (!amount || amount <= 0) {
+  if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ message: 'Montant invalide' });
   }
 

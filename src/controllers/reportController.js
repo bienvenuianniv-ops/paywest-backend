@@ -125,7 +125,7 @@ const exportTransactionsExcel = async (req, res) => {
         `${tx.receiver_name} (${tx.receiver_phone})`,
         parseFloat(tx.amount).toLocaleString('fr-FR'),
         statusLabels[tx.status] || tx.status,
-        `PAY-${tx.id}-${tx.created_at.toString().slice(0, 10)}`
+        `PAY-${tx.id}-${new Date(tx.created_at).toISOString().slice(0, 10)}`
       ]);
 
       // Alternance couleurs

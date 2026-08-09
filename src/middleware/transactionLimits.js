@@ -76,7 +76,7 @@ const checkTransactionLimits = async (req, res, next) => {
       `SELECT COALESCE(SUM(amount), 0) as total
        FROM transactions
        WHERE sender_id = $1
-       AND type IN ('transfer', 'withdraw')
+       AND type IN ('transfer', 'withdraw', 'payment')
        AND status = 'completed'
        AND created_at >= CURRENT_DATE`,
       [userId]
@@ -99,7 +99,7 @@ const checkTransactionLimits = async (req, res, next) => {
       `SELECT COALESCE(SUM(amount), 0) as total
        FROM transactions
        WHERE sender_id = $1
-       AND type IN ('transfer', 'withdraw')
+       AND type IN ('transfer', 'withdraw', 'payment')
        AND status = 'completed'
        AND created_at >= DATE_TRUNC('month', CURRENT_DATE)`,
       [userId]
