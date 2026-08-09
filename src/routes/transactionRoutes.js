@@ -4,6 +4,7 @@ const { sendMoney, getTransactions } = require('../controllers/transactionContro
 const { verifyToken } = require('../middleware/authMiddleware');
 const { transferRules, validate } = require('../middleware/validators');
 const { checkTransactionLimits } = require('../middleware/transactionLimits');
+const { idempotency } = require('../middleware/idempotency');
 
 /**
  * @swagger
@@ -35,7 +36,7 @@ const { checkTransactionLimits } = require('../middleware/transactionLimits');
  *       404:
  *         description: Destinataire non trouvé
  */
-router.post('/send', verifyToken, transferRules, validate, checkTransactionLimits, sendMoney);
+router.post('/send', verifyToken, idempotency('transactions.send'), transferRules, validate, checkTransactionLimits, sendMoney);
 
 /**
  * @swagger

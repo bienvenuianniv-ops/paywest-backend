@@ -3,6 +3,7 @@ const router = express.Router();
 const { generateQRCode, payViaQR } = require('../controllers/merchantController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 const { checkTransactionLimits } = require('../middleware/transactionLimits');
+const { idempotency } = require('../middleware/idempotency');
 
 /**
  * @swagger
@@ -79,6 +80,6 @@ router.get('/qrcode', verifyToken, verifyRole('merchant', 'admin'), generateQRCo
  *       404:
  *         description: Marchand non trouvé
  */
-router.post('/pay', verifyToken, checkTransactionLimits, payViaQR);
+router.post('/pay', verifyToken, idempotency('merchant.pay'), checkTransactionLimits, payViaQR);
 
 module.exports = router;
