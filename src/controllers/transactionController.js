@@ -18,10 +18,11 @@ const sendMoney = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-  const variants = phoneVariants(receiver_phone);
+const variants = phoneVariants(receiver_phone);
+const placeholders = variants.map((_, i) => `$${i + 1}`).join(', ');
 const receiverResult = await client.query(
-  `SELECT * FROM users WHERE phone = ANY($1)`,
-  [variants]
+  `SELECT * FROM users WHERE phone IN (${placeholders})`,
+  variants
 );
 
     if (receiverResult.rows.length === 0) {
