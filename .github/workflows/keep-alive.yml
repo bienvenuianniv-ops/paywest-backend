@@ -2,8 +2,10 @@ name: Keep Render service awake
 
 on:
   schedule:
-    # Toutes les 10 minutes — sous le seuil de 15 min de mise en veille du plan gratuit Render
-    - cron: '*/10 * * * *'
+    # Toutes les 5 minutes — marge de securite sous le seuil de 15 min de mise
+    # en veille Render (GitHub peut retarder les crons de quelques minutes,
+    # surtout aux heures rondes que ce planning declenche a chaque fois)
+    - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
 jobs:
@@ -15,5 +17,6 @@ jobs:
           status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 300 https://paywest-backend-1.onrender.com/)
           echo "Statut HTTP: $status"
           if [ "$status" != "200" ]; then
-            echo "::warning::Le ping a renvoye un statut $status au lieu de 200"
+            echo "::error::Le ping a renvoye un statut $status au lieu de 200"
+            exit 1
           fi
