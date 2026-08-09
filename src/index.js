@@ -1,7 +1,8 @@
+require('dotenv').config();
+const Sentry = require('./instrument');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-require('dotenv').config();
 
 // Imports des routes
 const authRoutes = require('./routes/authRoutes');
@@ -77,6 +78,11 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customCss: '.swagger-ui .topbar { background-color: #0EAD69; }',
   customfavIcon: 'https://pay.mayouservice.com/favicon.ico'
 }));
+// Capturer les erreurs non gerees (crash, exception synchrone) vers Sentry
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
+
 // Handler d'erreur global
 app.use((err, req, res, next) => {
   console.error('Erreur non gérée:', err.message);
