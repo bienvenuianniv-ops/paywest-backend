@@ -12,6 +12,7 @@ jest.mock('../../src/config/sms', () => ({
 const app = require('../../src/index');
 const { sendOtpSMS } = require('../../src/config/sms');
 const pool = require('../../src/config/db');
+const { phoneVariants } = require('../../src/utils/phoneHelper');
 
 let token;
 const RECEIVER_PHONE = '+221770000001';
@@ -28,6 +29,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   sendOtpSMS.mockClear();
+  sendOtpSMS.mock.calls = [];
+  sendOtpSMS.mock.results = [];
 });
 
 const lastOtpCode = () => sendOtpSMS.mock.calls[sendOtpSMS.mock.calls.length - 1][1];
@@ -36,14 +39,25 @@ const lastOtpCode = () => sendOtpSMS.mock.calls[sendOtpSMS.mock.calls.length - 1
 // destinataire) pour ne pas faire deriver les soldes de paywest_test
 // d'un run a l'autre.
 const reverseTransfer = async (senderId, receiverPhone, amount) => {
-  const receiver = await pool.query('SELECT id FROM users WHERE phone = $1', [receiverPhone]);
+  const variants = phoneVariants(receiverPhone);
+  const placeholders = variants.map((_, i) => `$${i + 1}`).join(', ');
+  const receiver = await pool.query(
+    `SELECT id FROM users WHERE phone IN (${placeholders})`,
+    variants
+  );
   await pool.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [amount, senderId]);
   await pool.query('UPDATE wallets SET balance = balance - $1 WHERE user_id = $2', [amount, receiver.rows[0].id]);
   await pool.query('DELETE FROM transactions WHERE sender_id = $1 AND type = $2 AND amount = $3', [senderId, 'transfer', amount]);
 };
 
 afterEach(async () => {
-  await pool.query('DELETE FROM otp_codes WHERE purpose = $1', ['transactions.send']);
+  try {
+    await pool.query('DELETE FROM otp_codes WHERE purpose = $1', ['transactions.send']);
+  } catch (error) {
+    console.error('Error cleaning up OTP codes:', error.message);
+  }
+  // Small delay to ensure database state is settled before next test
+  await new Promise(resolve => setTimeout(resolve, 50));
 });
 
 describe('OTP SMS — /api/transactions/send', () => {
@@ -54,8 +68,10 @@ describe('OTP SMS — /api/transactions/send', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ receiver_phone: RECEIVER_PHONE, amount: 100000 });
 
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(200);
     expect(sendOtpSMS).not.toHaveBeenCalled();
+
+    await reverseTransfer(res.body.transaction.sender_id, RECEIVER_PHONE, 100000);
   });
 
   it('exige un code au-dessus du seuil et envoie un SMS', async () => {
