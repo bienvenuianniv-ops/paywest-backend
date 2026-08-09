@@ -53,4 +53,9 @@ const sendWithdrawSMS = async (phone, amount, operator) => {
   return sendSMS(phone, message);
 };
 
-module.exports = { sendSMS, sendWelcomeSMS, sendTransferSMS, sendDepositSMS, sendWithdrawSMS };
+const sendOtpSMS = async (phone, code) => {
+  const message = `PayWest: Votre code de confirmation est ${code}. Valable 5 minutes. Ne le partagez avec personne.`;
+  return sendSMS(phone, message);
+};
+
+module.exports = { sendSMS, sendWelcomeSMS, sendTransferSMS, sendDepositSMS, sendWithdrawSMS, sendOtpSMS };

@@ -1,0 +1,137 @@
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const pool = require('../config/db');
+const logger = require('../config/logger');
+const { sendOtpSMS } = require('../config/sms');
+
+const OTP_THRESHOLD = 100000;
+const OTP_TTL_MS = 5 * 60 * 1000;
+const MAX_ATTEMPTS = 3;
+const RESEND_COOLDOWN_MS = 60 * 1000;
+
+// Champs du body qui identifient de maniere unique une transaction pour
+// chaque purpose — lient le code OTP a CE montant + CE destinataire precis,
+// pour qu'un code obtenu pour une transaction ne puisse pas en autoriser
+// une autre.
+const BINDING_FIELDS = {
+  'transactions.send': (body) => `${body.amount}:${body.receiver_phone}`,
+  'withdraw.wave': (body) => `${body.amount}:${body.phone}`,
+  'withdraw.orange': (body) => `${body.amount}:${body.phone}`
+};
+
+const isValidPurpose = (purpose) => Object.prototype.hasOwnProperty.call(BINDING_FIELDS, purpose);
+
+const computeBindingHash = (purpose, body) => {
+  const raw = BINDING_FIELDS[purpose](body);
+  return crypto.createHash('sha256').update(raw).digest('hex');
+};
+
+// Invalide tout code actif pour ce binding, en genere et en envoie un
+// nouveau par SMS au numero enregistre du compte (jamais a un numero
+// fourni dans le body, sinon un attaquant avec un JWT vole pourrait
+// simplement recevoir le code lui-meme).
+const generateAndSendOtp = async (userId, purpose, bindingHash) => {
+  await pool.query(
+    'DELETE FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3',
+    [userId, purpose, bindingHash]
+  );
+
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const codeHash = await bcrypt.hash(code, 10);
+  const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+
+  await pool.query(
+    `INSERT INTO otp_codes (user_id, purpose, code_hash, binding_hash, expires_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [userId, purpose, codeHash, bindingHash, expiresAt]
+  );
+
+  const userResult = await pool.query('SELECT phone FROM users WHERE id = $1', [userId]);
+
+  try {
+    await sendOtpSMS(userResult.rows[0].phone, code);
+  } catch (error) {
+    logger.error('Erreur envoi SMS OTP', { error: error.message, userId, purpose });
+  }
+};
+
+const requireOtp = (purpose) => async (req, res, next) => {
+  const amount = Number(req.body.amount);
+
+  if (!Number.isFinite(amount) || amount <= OTP_THRESHOLD) {
+    return next();
+  }
+
+  const userId = req.user.id;
+  const bindingHash = computeBindingHash(purpose, req.body);
+  const otpCode = req.body.otp_code;
+
+  try {
+    if (!otpCode) {
+      await generateAndSendOtp(userId, purpose, bindingHash);
+      return res.status(403).json({
+        otp_required: true,
+        message: 'Code envoyé par SMS, valable 5 minutes.'
+      });
+    }
+
+    // Un code a-t-il deja ete emis pour EXACTEMENT ce montant+destinataire ?
+    // Si non (le client a change le montant/destinataire entre-temps, ou
+    // fourni un code d'une autre transaction), on traite comme "aucun code
+    // fourni" plutot que "code invalide" : nouveau defi, nouveau SMS.
+    const everIssued = await pool.query(
+      'SELECT 1 FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3 LIMIT 1',
+      [userId, purpose, bindingHash]
+    );
+
+    if (everIssued.rows.length === 0) {
+      await generateAndSendOtp(userId, purpose, bindingHash);
+      return res.status(403).json({
+        otp_required: true,
+        message: 'Code envoyé par SMS, valable 5 minutes.'
+      });
+    }
+
+    const active = await pool.query(
+      `SELECT * FROM otp_codes
+       WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3
+       AND used_at IS NULL AND expires_at > NOW() AND attempts < $4
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, purpose, bindingHash, MAX_ATTEMPTS]
+    );
+
+    if (active.rows.length === 0) {
+      return res.status(401).json({
+        otp_invalid: true,
+        message: 'Code invalide ou expiré. Demandez un nouveau code.'
+      });
+    }
+
+    const otpRow = active.rows[0];
+    const isMatch = await bcrypt.compare(String(otpCode), otpRow.code_hash);
+
+    if (!isMatch) {
+      await pool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1', [otpRow.id]);
+      return res.status(401).json({
+        otp_invalid: true,
+        message: 'Code invalide ou expiré. Demandez un nouveau code.'
+      });
+    }
+
+    await pool.query('UPDATE otp_codes SET used_at = NOW() WHERE id = $1', [otpRow.id]);
+    next();
+
+  } catch (error) {
+    logger.error('Erreur vérification OTP', { error: error.message, userId, purpose });
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
+};
+
+module.exports = {
+  requireOtp,
+  computeBindingHash,
+  generateAndSendOtp,
+  isValidPurpose,
+  OTP_THRESHOLD,
+  RESEND_COOLDOWN_MS
+};
