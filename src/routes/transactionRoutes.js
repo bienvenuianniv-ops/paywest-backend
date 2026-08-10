@@ -32,8 +32,26 @@ const { requireOtp } = require('../middleware/requireOtp');
  *     responses:
  *       200:
  *         description: Transfert effectué avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Transfert effectué avec succès
+ *                 fee:
+ *                   type: integer
+ *                   description: Frais prélevés en sus du montant, à la charge de l'expéditeur
+ *                   example: 250
+ *                 total_debit:
+ *                   type: integer
+ *                   description: Somme réellement débitée de l'expéditeur (montant + frais)
+ *                   example: 10250
  *       400:
- *         description: Solde insuffisant, montant invalide ou limite dépassée
+ *         description: Solde insuffisant (montant + frais), montant invalide ou limite dépassée
+ *       403:
+ *         description: Code OTP requis (montant supérieur à 100 000 XOF)
  *       404:
  *         description: Destinataire non trouvé
  */
