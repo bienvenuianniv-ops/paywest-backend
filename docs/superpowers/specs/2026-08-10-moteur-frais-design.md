@@ -259,10 +259,21 @@ Approche TDD (test rouge d'abord), comme sur le chantier OTP.
 Ces deux tests verrouillent les décisions de cadrage par du code plutôt que par
 un commentaire.
 
-**Tests existants à mettre à jour :** `transaction.test.js` affirme des soldes
-après transfert qui ne tiennent plus une fois les frais prélevés. C'est le
-comportement attendu et non un accident ; la mise à jour sera annoncée
-explicitement, jamais faite en silence.
+**Test existant à mettre à jour — `otp.test.js` :** son helper `reverseTransfer`
+(ligne 45) annule un transfert de test en recréditant l'expéditeur du **montant
+seul**. Avec des frais, l'expéditeur reste débité de `fee` à chaque transfert
+réussi et le wallet plateforme conserve la somme : la base `paywest_test` dérive
+d'environ 7 500 XOF par run (trois transferts de 150 000 à 2 500 de frais).
+L'invariant Σ wallets reste vrai, ce qui rend la dérive silencieuse — c'est
+précisément le type de pollution que le commentaire de ce helper cherche à
+empêcher.
+
+Correction : `reverseTransfer` recrédite l'expéditeur de `amount + fee`, débite
+le destinataire de `amount` et débite le wallet plateforme de `fee`, en lisant
+`transaction.fee` sur l'objet renvoyé par l'API.
+
+`transaction.test.js` n'affirme aucun solde après transfert (uniquement montant
+invalide et destinataire inexistant) : aucune mise à jour requise.
 
 ## Hors périmètre
 
