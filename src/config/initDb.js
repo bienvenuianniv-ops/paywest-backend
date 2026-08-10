@@ -72,6 +72,8 @@ async function initDb() {
         last_resend_at TIMESTAMP NOT NULL,
         PRIMARY KEY (user_id, purpose, binding_hash)
       );
+
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee DECIMAL(15,2) NOT NULL DEFAULT 0;
     `);
 
     // Migration pour les bases créées avant l'ajout de la contrainte UNIQUE
@@ -95,6 +97,40 @@ async function initDb() {
         END $$;
       `);
     }
+
+    // Compte plateforme : destinataire des frais de transfert.
+    //
+    // password '*' n'est pas un hash bcrypt valide, donc bcrypt.compare
+    // renvoie toujours false : le compte n'est connectable par personne.
+    // phone non numerique : le validateur (^\+?[0-9]{8,15}$) rejette cette
+    // valeur a l'inscription comme en destinataire de transfert.
+    //
+    // Place APRES le bloc qui pose la contrainte UNIQUE sur wallets.user_id :
+    // le ON CONFLICT (user_id) ci-dessous en depend.
+    const platformInsert = await pool.query(`
+      INSERT INTO users (full_name, email, phone, password, role)
+      VALUES ('PayWest Plateforme', 'platform@paywest.internal', 'PLATFORM-ACCOUNT', '*', 'platform')
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id
+    `);
+
+    // ON CONFLICT DO NOTHING ne renvoie AUCUNE ligne quand le compte existe
+    // deja : sans ce repli, la creation du wallet echouerait silencieusement
+    // des le deuxieme lancement de ce script.
+    const platformId = platformInsert.rows.length > 0
+      ? platformInsert.rows[0].id
+      : (await pool.query(
+          `SELECT id FROM users WHERE email = 'platform@paywest.internal'`
+        )).rows[0].id;
+
+    await pool.query(
+      `INSERT INTO wallets (user_id, balance, currency)
+       VALUES ($1, 0, 'XOF')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [platformId]
+    );
+
+    console.log(`✅ Compte plateforme prêt (user_id=${platformId})`);
 
     console.log('✅ Tables créées avec succès !');
     process.exit(0);

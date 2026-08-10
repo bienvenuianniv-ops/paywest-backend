@@ -93,6 +93,19 @@ app.use((err, req, res, next) => {
 
 // Démarrage du serveur
 if (require.main === module) {
+  const { getPlatformUserId } = require('./services/platformAccount');
+
+  // Resolution au demarrage plutot qu'au premier transfert : un compte
+  // plateforme absent doit se voir tout de suite dans les logs, pas au moment
+  // ou un client envoie de l'argent.
+  //
+  // Volontairement A L'INTERIEUR de ce bloc : au niveau du module, chaque
+  // fichier de test qui importe `app` sans le demarrer ouvrirait une
+  // connexion base inutile.
+  getPlatformUserId()
+    .then((id) => console.log(`Compte plateforme résolu (user_id=${id})`))
+    .catch((error) => console.error('❌ Compte plateforme:', error.message));
+
   app.listen(PORT, () => {
     console.log(`Serveur PayWest démarré sur le port ${PORT}`);
   });
