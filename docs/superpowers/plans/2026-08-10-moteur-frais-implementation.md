@@ -20,6 +20,7 @@
 - Le nom de champ exposé pour le débit total est `total_debit`, identique dans le devis et dans la réponse de transfert.
 - Les tests tournent contre `paywest_test` (`NODE_ENV=test`), jamais contre la production.
 - `AUDIT.md` ne doit jamais être commité : vérifier `git status` avant chaque commit.
+- **Le dépôt GitHub est public.** Aucun nouveau fichier de test ne doit contenir de mot de passe en dur, même en valeur de repli : les identifiants viennent de `process.env.TEST_PASSWORD`, qui doit être défini avant de lancer la suite.
 
 ---
 
@@ -405,7 +406,8 @@ beforeAll(async () => {
     .post('/api/auth/login')
     .send({
       email: 'bienvenu@paywest.com',
-      password: process.env.TEST_PASSWORD || 'Nanoushca@2007'
+      // Aucune valeur de repli en dur : le depot est public.
+      password: process.env.TEST_PASSWORD
     });
   token = res.body.token;
 });
@@ -653,7 +655,8 @@ beforeAll(async () => {
     .post('/api/auth/login')
     .send({
       email: 'bienvenu@paywest.com',
-      password: process.env.TEST_PASSWORD || 'Nanoushca@2007'
+      // Aucune valeur de repli en dur : le depot est public.
+      password: process.env.TEST_PASSWORD
     });
   token = login.body.token;
 
