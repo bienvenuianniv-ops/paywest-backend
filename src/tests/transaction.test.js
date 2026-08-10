@@ -9,7 +9,7 @@ beforeAll(async () => {
     .post('/api/auth/login')
     .send({
       email: 'bienvenu@paywest.com',
-      password: process.env.TEST_PASSWORD || '123456'
+      password: process.env.TEST_PASSWORD
     });
   token = res.body.token;
 });

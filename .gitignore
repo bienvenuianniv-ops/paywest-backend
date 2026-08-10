@@ -1,3 +1,9 @@
 node_modules/
-.env
+
+# Toutes les variantes : .env.bak, .env.local, .env.save... Une seule ligne
+# `.env` laissait passer les copies, qui contiennent exactement les memes
+# secrets (DATABASE_URL, JWT_SECRET, cles d'API) sur un depot public.
+.env*
+!.env.example
+
 AUDIT.md

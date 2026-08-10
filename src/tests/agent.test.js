@@ -10,7 +10,7 @@ beforeAll(async () => {
     .post('/api/auth/login')
     .send({
       email: 'bienvenu@paywest.com',
-      password: process.env.TEST_PASSWORD || 'Nanoushca@2007'
+      password: process.env.TEST_PASSWORD
     });
   adminToken = adminRes.body.token;
 
@@ -19,7 +19,7 @@ beforeAll(async () => {
     .post('/api/auth/login')
     .send({
       email: 'agent@paywest.com',
-      password: '123456'
+      password: process.env.TEST_AGENT_PASSWORD
     });
   agentToken = agentRes.body.token;
 });

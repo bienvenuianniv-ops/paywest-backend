@@ -12,6 +12,21 @@
 // qui a besoin d'un comportement different (voir sms.test.js) peut toujours
 // redefinir son propre mock, qui prend le pas sur celui-ci.
 
+// Les identifiants de test viennent exclusivement de l'environnement : plus
+// aucune valeur de repli en dur, le depot GitHub etant public. dotenv est
+// charge ici car ce fichier s'execute AVANT que le test ne require
+// src/index.js (qui est l'endroit ou dotenv etait charge jusqu'ici).
+require('dotenv').config();
+
+for (const variable of ['TEST_PASSWORD', 'TEST_AGENT_PASSWORD']) {
+  if (!process.env[variable]) {
+    throw new Error(
+      `${variable} manquant : les tests se connectent avec cette variable, ` +
+      'et aucun mot de passe n\'est code en dur. La definir dans .env.'
+    );
+  }
+}
+
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({
     emails: {
