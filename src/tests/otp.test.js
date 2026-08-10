@@ -184,6 +184,32 @@ describe('OTP SMS — /api/transactions/send', () => {
     expect(sendOtpSMS).toHaveBeenCalledTimes(1);
   });
 
+  it('une resoumission avec la même Idempotency-Key après un défi OTP s\'exécute (pas de 403 en cache)', async () => {
+    const idempotencyKey = `otp-idem-test-${Date.now()}`;
+
+    const challenge = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000 });
+
+    expect(challenge.statusCode).toBe(403);
+
+    const code = lastOtpCode();
+
+    const executed = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000, otp_code: code });
+
+    expect(executed.statusCode).toBe(200);
+    expect(executed.body).toHaveProperty('transaction');
+
+    await reverseTransfer(executed.body.transaction.sender_id, RECEIVER_PHONE, 150000);
+    await pool.query('DELETE FROM idempotency_keys WHERE key = $1', [idempotencyKey]);
+  });
+
 });
 
 describe('OTP SMS — /api/withdraw/wave', () => {
