@@ -50,8 +50,10 @@ const generateAndSendOtp = async (userId, purpose, bindingHash) => {
 
   try {
     await sendOtpSMS(userResult.rows[0].phone, code);
+    return { smsSent: true };
   } catch (error) {
     logger.error('Erreur envoi SMS OTP', { error: error.message, userId, purpose });
+    return { smsSent: false };
   }
 };
 
@@ -68,7 +70,26 @@ const requireOtp = (purpose) => async (req, res, next) => {
 
   try {
     if (!otpCode) {
-      await generateAndSendOtp(userId, purpose, bindingHash);
+      const alreadyChallenged = await pool.query(
+        'SELECT 1 FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3 LIMIT 1',
+        [userId, purpose, bindingHash]
+      );
+
+      if (alreadyChallenged.rows.length > 0) {
+        // Un defi a deja ete envoye pour cette transaction precise : ne pas en
+        // regenerer un a chaque resoumission (ca reinitialiserait le verrou de
+        // tentatives et permettrait un envoi de SMS illimite) — rediriger vers
+        // /api/otp/resend, qui a son propre cooldown independant.
+        return res.status(403).json({
+          otp_required: true,
+          message: 'Un code a déjà été envoyé par SMS. Utilisez /api/otp/resend pour en redemander un.'
+        });
+      }
+
+      const result = await generateAndSendOtp(userId, purpose, bindingHash);
+      if (!result.smsSent) {
+        return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
+      }
       return res.status(403).json({
         otp_required: true,
         message: 'Code envoyé par SMS, valable 5 minutes.'
@@ -85,7 +106,10 @@ const requireOtp = (purpose) => async (req, res, next) => {
     );
 
     if (everIssued.rows.length === 0) {
-      await generateAndSendOtp(userId, purpose, bindingHash);
+      const result = await generateAndSendOtp(userId, purpose, bindingHash);
+      if (!result.smsSent) {
+        return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
+      }
       return res.status(403).json({
         otp_required: true,
         message: 'Code envoyé par SMS, valable 5 minutes.'

@@ -9,24 +9,19 @@ const africastalking = AfricasTalking({
 const sms = africastalking.SMS;
 
 const sendSMS = async (to, message) => {
-  try {
-    // Formater le numéro avec indicatif international
-    let phone = to.replace(/\s/g, '');
-if (!phone.startsWith('+')) {
-  phone = '+221' + phone;
-}
-
-    const result = await sms.send({
-  to: [phone],
-  message
-});
-
-    logger.info('SMS envoyé', { to: phone, status: result.SMSMessageData?.Message });
-    return result;
-
-  } catch (error) {
-    logger.error('Erreur envoi SMS', { error: error.message, to });
+  // Formater le numéro avec indicatif international
+  let phone = to.replace(/\s/g, '');
+  if (!phone.startsWith('+')) {
+    phone = '+221' + phone;
   }
+
+  const result = await sms.send({
+    to: [phone],
+    message
+  });
+
+  logger.info('SMS envoyé', { to: phone, status: result.SMSMessageData?.Message });
+  return result;
 };
 
 // Templates SMS PayWest

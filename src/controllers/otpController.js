@@ -41,7 +41,10 @@ const resendOtp = async (req, res) => {
       }
     }
 
-    await generateAndSendOtp(userId, purpose, bindingHash);
+    const result = await generateAndSendOtp(userId, purpose, bindingHash);
+    if (!result.smsSent) {
+      return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
+    }
 
     // Update or insert resend cooldown timestamp
     await pool.query(

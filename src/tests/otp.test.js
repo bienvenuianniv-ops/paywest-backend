@@ -184,6 +184,38 @@ describe('OTP SMS — /api/transactions/send', () => {
     expect(sendOtpSMS).toHaveBeenCalledTimes(1);
   });
 
+  it('resoumettre la même requête sans otp_code ne renvoie pas un second SMS', async () => {
+    const first = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000 });
+
+    expect(first.statusCode).toBe(403);
+    expect(sendOtpSMS).toHaveBeenCalledTimes(1);
+
+    const second = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000 });
+
+    expect(second.statusCode).toBe(403);
+    expect(second.body.otp_required).toBe(true);
+    expect(second.body.message).toMatch(/déjà été envoyé/);
+    expect(sendOtpSMS).toHaveBeenCalledTimes(1);
+  });
+
+  it('un échec d\'envoi SMS renvoie 502 plutôt qu\'un faux succès', async () => {
+    sendOtpSMS.mockRejectedValueOnce(new Error('SMS provider down'));
+
+    const res = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000 });
+
+    expect(res.statusCode).toBe(502);
+    expect(res.body.otp_required).toBeUndefined();
+  });
+
   it('une resoumission avec la même Idempotency-Key après un défi OTP s\'exécute (pas de 403 en cache)', async () => {
     const idempotencyKey = `otp-idem-test-${Date.now()}`;
 
