@@ -7,10 +7,6 @@ const {
   RESEND_COOLDOWN_MS
 } = require('../middleware/requireOtp');
 
-// In-memory tracking of resend attempts per user+purpose+binding
-// Maps "userId:purpose:bindingHash" to last resend call timestamp
-const resendCallTimes = {};
-
 const resendOtp = async (req, res) => {
   const { purpose, amount } = req.body;
 
@@ -33,15 +29,28 @@ const resendOtp = async (req, res) => {
 
   try {
     // Check cooldown between RESEND calls (not between initial challenge and first resend)
-    const resendKey = `${userId}:${purpose}:${bindingHash}`;
-    const lastResendTime = resendCallTimes[resendKey];
+    const cooldownCheck = await pool.query(
+      'SELECT last_resend_at FROM otp_resend_cooldowns WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3',
+      [userId, purpose, bindingHash]
+    );
 
-    if (lastResendTime && Date.now() - lastResendTime < RESEND_COOLDOWN_MS) {
-      return res.status(429).json({ message: 'Veuillez patienter avant de redemander un code.' });
+    if (cooldownCheck.rows.length > 0) {
+      const ageMs = Date.now() - new Date(cooldownCheck.rows[0].last_resend_at).getTime();
+      if (ageMs < RESEND_COOLDOWN_MS) {
+        return res.status(429).json({ message: 'Veuillez patienter avant de redemander un code.' });
+      }
     }
 
     await generateAndSendOtp(userId, purpose, bindingHash);
-    resendCallTimes[resendKey] = Date.now();
+
+    // Update or insert resend cooldown timestamp
+    await pool.query(
+      `INSERT INTO otp_resend_cooldowns (user_id, purpose, binding_hash, last_resend_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id, purpose, binding_hash) DO UPDATE SET last_resend_at = NOW()`,
+      [userId, purpose, bindingHash]
+    );
+
     res.json({ message: 'Nouveau code envoyé par SMS.' });
 
   } catch (error) {

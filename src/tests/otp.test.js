@@ -258,6 +258,7 @@ describe('POST /api/otp/resend', () => {
 
   afterEach(async () => {
     await pool.query('DELETE FROM otp_codes WHERE purpose = $1', ['transactions.send']);
+    await pool.query('DELETE FROM otp_resend_cooldowns WHERE purpose = $1', ['transactions.send']);
   });
 
   it('rejette un purpose invalide', async () => {
@@ -308,17 +309,19 @@ describe('POST /api/otp/resend', () => {
   });
 
   it('applique un cooldown de 60s entre deux renvois', async () => {
-    await request(app)
+    const first = await request(app)
       .post('/api/otp/resend')
       .set('Authorization', `Bearer ${token}`)
-      .send({ purpose: 'transactions.send', amount: 150000, receiver_phone: RECEIVER_PHONE });
+      .send({ purpose: 'transactions.send', amount: 175000, receiver_phone: RECEIVER_PHONE });
 
-    const res = await request(app)
+    expect(first.statusCode).toBe(200);
+
+    const second = await request(app)
       .post('/api/otp/resend')
       .set('Authorization', `Bearer ${token}`)
-      .send({ purpose: 'transactions.send', amount: 150000, receiver_phone: RECEIVER_PHONE });
+      .send({ purpose: 'transactions.send', amount: 175000, receiver_phone: RECEIVER_PHONE });
 
-    expect(res.statusCode).toBe(429);
+    expect(second.statusCode).toBe(429);
   });
 
 });
