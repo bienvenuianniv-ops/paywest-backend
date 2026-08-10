@@ -21,6 +21,7 @@ const currencyRoutes = require('./routes/currencyRoutes');
 const kycRoutes = require('./routes/kycRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const otpRoutes = require('./routes/otpRoutes');
+const feeRoutes = require('./routes/feeRoutes');
 
 // Import rate limiter
 const { generalLimiter, authLimiter, transactionLimiter } = require('./middleware/rateLimiter');
@@ -67,6 +68,9 @@ app.use('/api/merchant-dash', merchantDashRoutes);
 app.use('/api/withdraw', transactionLimiter, withdrawRoutes);
 app.use('/api/otp', transactionLimiter, otpRoutes);
 app.use('/api/currency', currencyRoutes);
+// Deux lectures sans effet de bord : pas de transactionLimiter, le
+// generalLimiter monte sur /api suffit.
+app.use('/api/fees', feeRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/reports', reportRoutes);
 
