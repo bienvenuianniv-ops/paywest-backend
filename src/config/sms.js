@@ -31,11 +31,35 @@ const sendWelcomeSMS = async (phone, name) => {
 };
 
 const sendTransferSMS = async (senderPhone, receiverPhone, senderName, receiverName, amount) => {
-  // SMS à l'expéditeur
-  await sendSMS(senderPhone, `PayWest: Vous avez envoyé ${amount.toLocaleString()} XOF à ${receiverName}. Nouveau solde disponible sur pay.mayouservice.com`);
+  // Les deux envois sont indépendants : l'échec de l'un ne doit pas empêcher l'autre
+  const notifications = [
+    {
+      label: "à l'expéditeur",
+      phone: senderPhone,
+      message: `PayWest: Vous avez envoyé ${amount.toLocaleString()} XOF à ${receiverName}. Nouveau solde disponible sur pay.mayouservice.com`
+    },
+    {
+      label: 'au destinataire',
+      phone: receiverPhone,
+      message: `PayWest: Vous avez reçu ${amount.toLocaleString()} XOF de ${senderName}. Consultez votre solde sur pay.mayouservice.com`
+    }
+  ];
 
-  // SMS au destinataire
-  await sendSMS(receiverPhone, `PayWest: Vous avez reçu ${amount.toLocaleString()} XOF de ${senderName}. Consultez votre solde sur pay.mayouservice.com`);
+  const results = await Promise.allSettled(
+    notifications.map(({ phone, message }) => sendSMS(phone, message))
+  );
+
+  const failed = [];
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') {
+      logger.error(`SMS de transfert non envoyé ${notifications[index].label}`, { error: result.reason?.message });
+      failed.push(notifications[index].label);
+    }
+  });
+
+  if (failed.length > 0) {
+    throw new Error(`SMS de transfert non envoyé ${failed.join(' et ')}`);
+  }
 };
 
 const sendDepositSMS = async (phone, amount, operator) => {
