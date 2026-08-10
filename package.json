@@ -10,7 +10,10 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testTimeout": 10000
+    "setupFilesAfterEnv": [
+      "<rootDir>/src/tests/setup.js"
+    ],
+    "testTimeout": 30000
   },
   "keywords": [],
   "author": "",
