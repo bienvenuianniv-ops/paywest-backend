@@ -5,6 +5,7 @@ const { verifyToken } = require('../middleware/authMiddleware');
 const { depositRules, validate } = require('../middleware/validators');
 const { checkTransactionLimits } = require('../middleware/transactionLimits');
 const { idempotency } = require('../middleware/idempotency');
+const { requireOtp } = require('../middleware/requireOtp');
 const { verifyWaveWebhook, verifyOrangeWebhook } = require('../middleware/webhookSecurity');
 
 /**
@@ -35,7 +36,7 @@ const { verifyWaveWebhook, verifyOrangeWebhook } = require('../middleware/webhoo
  *       400:
  *         description: Solde insuffisant
  */
-router.post('/wave', verifyToken, idempotency('withdraw.wave'), depositRules, validate, checkTransactionLimits, withdrawToWave);
+router.post('/wave', verifyToken, idempotency('withdraw.wave'), depositRules, validate, checkTransactionLimits, requireOtp('withdraw.wave'), withdrawToWave);
 
 /**
  * @swagger
@@ -65,7 +66,7 @@ router.post('/wave', verifyToken, idempotency('withdraw.wave'), depositRules, va
  *       400:
  *         description: Solde insuffisant
  */
-router.post('/orange', verifyToken, idempotency('withdraw.orange'), depositRules, validate, checkTransactionLimits, withdrawToOrange);
+router.post('/orange', verifyToken, idempotency('withdraw.orange'), depositRules, validate, checkTransactionLimits, requireOtp('withdraw.orange'), withdrawToOrange);
 
 /**
  * @swagger

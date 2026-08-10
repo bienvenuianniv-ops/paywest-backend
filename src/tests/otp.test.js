@@ -185,3 +185,45 @@ describe('OTP SMS — /api/transactions/send', () => {
   });
 
 });
+
+describe('OTP SMS — /api/withdraw/wave', () => {
+  const WITHDRAW_PHONE = '+221771234567';
+
+  afterEach(async () => {
+    await pool.query('DELETE FROM otp_codes WHERE purpose = $1', ['withdraw.wave']);
+  });
+
+  it('exige un code au-dessus du seuil', async () => {
+    const res = await request(app)
+      .post('/api/withdraw/wave')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ amount: 150000, phone: WITHDRAW_PHONE });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.body.otp_required).toBe(true);
+  });
+
+  it('accepte le bon code et exécute le retrait', async () => {
+    await request(app)
+      .post('/api/withdraw/wave')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ amount: 150000, phone: WITHDRAW_PHONE });
+
+    const code = lastOtpCode();
+
+    const res = await request(app)
+      .post('/api/withdraw/wave')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ amount: 150000, phone: WITHDRAW_PHONE, otp_code: code });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toHaveProperty('transaction_id');
+
+    // Recredite le wallet et nettoie la transaction de test — withdrawToWave
+    // ne renvoie pas sender_id dans la reponse, on retrouve l'utilisateur
+    // connecte par son email (meme compte que `token`, voir beforeAll).
+    const admin = await pool.query('SELECT id FROM users WHERE email = $1', ['bienvenu@paywest.com']);
+    await pool.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [150000, admin.rows[0].id]);
+    await pool.query('DELETE FROM transactions WHERE id = $1', [res.body.transaction_id]);
+  });
+});
