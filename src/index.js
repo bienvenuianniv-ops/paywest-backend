@@ -20,6 +20,7 @@ const withdrawRoutes = require('./routes/withdrawRoutes');
 const currencyRoutes = require('./routes/currencyRoutes');
 const kycRoutes = require('./routes/kycRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const otpRoutes = require('./routes/otpRoutes');
 
 // Import rate limiter
 const { generalLimiter, authLimiter, transactionLimiter } = require('./middleware/rateLimiter');
@@ -64,6 +65,7 @@ app.use('/api/orange', transactionLimiter, orangeRoutes);
 app.use('/api/agent', transactionLimiter, agentRoutes);
 app.use('/api/merchant-dash', merchantDashRoutes);
 app.use('/api/withdraw', transactionLimiter, withdrawRoutes);
+app.use('/api/otp', transactionLimiter, otpRoutes);
 app.use('/api/currency', currencyRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/reports', reportRoutes);

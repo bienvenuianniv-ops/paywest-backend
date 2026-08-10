@@ -253,3 +253,72 @@ describe('OTP SMS — /api/withdraw/wave', () => {
     await pool.query('DELETE FROM transactions WHERE id = $1', [res.body.transaction_id]);
   });
 });
+
+describe('POST /api/otp/resend', () => {
+
+  afterEach(async () => {
+    await pool.query('DELETE FROM otp_codes WHERE purpose = $1', ['transactions.send']);
+  });
+
+  it('rejette un purpose invalide', async () => {
+    const res = await request(app)
+      .post('/api/otp/resend')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ purpose: 'inconnu', amount: 150000, receiver_phone: RECEIVER_PHONE });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('renvoie un nouveau code et invalide l\'ancien', async () => {
+    await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000 });
+
+    const firstCode = lastOtpCode();
+    sendOtpSMS.mockClear();
+
+    const resendRes = await request(app)
+      .post('/api/otp/resend')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ purpose: 'transactions.send', amount: 150000, receiver_phone: RECEIVER_PHONE });
+
+    expect(resendRes.statusCode).toBe(200);
+    expect(sendOtpSMS).toHaveBeenCalledTimes(1);
+
+    const secondCode = lastOtpCode();
+    expect(secondCode).not.toBe(firstCode);
+
+    // L'ancien code ne doit plus fonctionner.
+    const withOldCode = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000, otp_code: firstCode });
+
+    expect(withOldCode.statusCode).toBe(401);
+
+    // Le nouveau code doit fonctionner.
+    const withNewCode = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000, otp_code: secondCode });
+
+    expect(withNewCode.statusCode).toBe(200);
+    await reverseTransfer(withNewCode.body.transaction.sender_id, RECEIVER_PHONE, 150000);
+  });
+
+  it('applique un cooldown de 60s entre deux renvois', async () => {
+    await request(app)
+      .post('/api/otp/resend')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ purpose: 'transactions.send', amount: 150000, receiver_phone: RECEIVER_PHONE });
+
+    const res = await request(app)
+      .post('/api/otp/resend')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ purpose: 'transactions.send', amount: 150000, receiver_phone: RECEIVER_PHONE });
+
+    expect(res.statusCode).toBe(429);
+  });
+
+});
