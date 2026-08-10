@@ -58,7 +58,15 @@ const idempotency = (label) => async (req, res, next) => {
       // re-executer requireOtp.
       const isOtpChallenge = body && (body.otp_required === true || body.otp_invalid === true);
 
-      if (isOtpChallenge) {
+      // Meme raisonnement pour les erreurs serveur : un 502 « Erreur d'envoi du
+      // SMS, veuillez reessayer » ou un 500 invite explicitement a reessayer.
+      // Les mettre en cache condamnerait la cle — le client rejouerait sa
+      // requete et recevrait indefiniment l'erreur enregistree, sans que le
+      // traitement soit jamais relance. Une erreur 4xx, elle, est une issue
+      // finale legitime (montant invalide, solde insuffisant) et reste cachee.
+      const isTransientError = res.statusCode >= 500;
+
+      if (isOtpChallenge || isTransientError) {
         // Supprimer la ligne d'idempotency pour laisser la resoumission
         // creer une nouvelle ligne et executer le traitement.
         try {
@@ -67,7 +75,7 @@ const idempotency = (label) => async (req, res, next) => {
             [userId, key, label]
           );
         } catch (error) {
-          logger.error('Erreur suppression idempotency OTP', { error: error.message });
+          logger.error('Erreur suppression idempotency (reponse non finale)', { error: error.message });
         }
         return originalJson(body);
       }

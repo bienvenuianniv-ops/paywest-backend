@@ -31,28 +31,46 @@ const computeBindingHash = (purpose, body) => {
 // fourni dans le body, sinon un attaquant avec un JWT vole pourrait
 // simplement recevoir le code lui-meme).
 const generateAndSendOtp = async (userId, purpose, bindingHash) => {
+  // Numero lu AVANT toute ecriture : un JWT reste valide 7 jours, donc il peut
+  // appartenir a un compte supprime entre-temps. Dereferencer rows[0] plus bas
+  // aurait leve une TypeError masquee en 500, en laissant une ligne orpheline.
+  const userResult = await pool.query('SELECT phone FROM users WHERE id = $1', [userId]);
+  if (userResult.rows.length === 0) {
+    return { smsSent: false, userMissing: true };
+  }
+
   await pool.query(
     'DELETE FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3',
     [userId, purpose, bindingHash]
   );
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  // crypto.randomInt et non Math.random : Math.random n'est pas cryptographique
+  // (V8 utilise xorshift128+, dont l'etat interne se reconstruit a partir de
+  // quelques sorties observees). Un attaquant qui declenche des OTP sur son
+  // propre compte pourrait sinon predire ceux emis pour d'autres comptes.
+  const code = String(crypto.randomInt(100000, 1000000));
   const codeHash = await bcrypt.hash(code, 10);
   const expiresAt = new Date(Date.now() + OTP_TTL_MS);
 
-  await pool.query(
+  const inserted = await pool.query(
     `INSERT INTO otp_codes (user_id, purpose, code_hash, binding_hash, expires_at)
-     VALUES ($1, $2, $3, $4, $5)`,
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
     [userId, purpose, codeHash, bindingHash, expiresAt]
   );
-
-  const userResult = await pool.query('SELECT phone FROM users WHERE id = $1', [userId]);
 
   try {
     await sendOtpSMS(userResult.rows[0].phone, code);
     return { smsSent: true };
   } catch (error) {
     logger.error('Erreur envoi SMS OTP', { error: error.message, userId, purpose });
+    // Sans ce nettoyage, la ligne survivrait a l'echec d'envoi et compterait
+    // ensuite comme "defi deja emis" : l'appelant recevrait un 403 « code deja
+    // envoye » alors qu'aucun SMS n'est jamais parti.
+    try {
+      await pool.query('DELETE FROM otp_codes WHERE id = $1', [inserted.rows[0].id]);
+    } catch (cleanupError) {
+      logger.error('Erreur nettoyage OTP apres echec SMS', { error: cleanupError.message, userId, purpose });
+    }
     return { smsSent: false };
   }
 };
@@ -70,8 +88,16 @@ const requireOtp = (purpose) => async (req, res, next) => {
 
   try {
     if (!otpCode) {
+      // Le filtre sur used_at/expires_at est essentiel : sans lui, la premiere
+      // ligne creee pour un binding y restait pour toujours (rien ne purge
+      // otp_codes), donc apres un transfert abouti tout nouveau transfert du
+      // MEME montant au MEME destinataire recevait « un code a deja ete
+      // envoye » sans qu'aucun SMS ne parte. La protection anti-spam reste
+      // entiere : un code encore actif continue de bloquer la regeneration.
       const alreadyChallenged = await pool.query(
-        'SELECT 1 FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3 LIMIT 1',
+        `SELECT 1 FROM otp_codes
+         WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3
+         AND used_at IS NULL AND expires_at > NOW() LIMIT 1`,
         [userId, purpose, bindingHash]
       );
 
@@ -87,6 +113,9 @@ const requireOtp = (purpose) => async (req, res, next) => {
       }
 
       const result = await generateAndSendOtp(userId, purpose, bindingHash);
+      if (result.userMissing) {
+        return res.status(401).json({ message: 'Compte introuvable' });
+      }
       if (!result.smsSent) {
         return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
       }
@@ -100,6 +129,12 @@ const requireOtp = (purpose) => async (req, res, next) => {
     // Si non (le client a change le montant/destinataire entre-temps, ou
     // fourni un code d'une autre transaction), on traite comme "aucun code
     // fourni" plutot que "code invalide" : nouveau defi, nouveau SMS.
+    // Volontairement SANS filtre sur used_at/expires_at, contrairement a
+    // `alreadyChallenged` plus haut : les deux questions sont differentes.
+    // Ici on demande « un defi a-t-il deja existe pour ce binding ? » afin de
+    // distinguer un code appartenant a une autre transaction (-> nouveau defi)
+    // d'un code perime ou deja consomme (-> 401 « demandez un nouveau code »).
+    // Filtrer ici ferait repartir un SMS a chaque rejeu d'un code consomme.
     const everIssued = await pool.query(
       'SELECT 1 FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3 LIMIT 1',
       [userId, purpose, bindingHash]
@@ -107,6 +142,9 @@ const requireOtp = (purpose) => async (req, res, next) => {
 
     if (everIssued.rows.length === 0) {
       const result = await generateAndSendOtp(userId, purpose, bindingHash);
+      if (result.userMissing) {
+        return res.status(401).json({ message: 'Compte introuvable' });
+      }
       if (!result.smsSent) {
         return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
       }

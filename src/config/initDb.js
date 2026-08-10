@@ -38,6 +38,40 @@ async function initDb() {
         status VARCHAR(20) DEFAULT 'active',
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS idempotency_keys (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        key VARCHAR(255) NOT NULL,
+        endpoint VARCHAR(100) NOT NULL,
+        response_status INTEGER,
+        response_body JSONB,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (user_id, key, endpoint)
+      );
+
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        purpose VARCHAR(50) NOT NULL,
+        code_hash VARCHAR(255) NOT NULL,
+        binding_hash VARCHAR(64) NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_otp_codes_lookup
+        ON otp_codes (user_id, purpose, binding_hash);
+
+      CREATE TABLE IF NOT EXISTS otp_resend_cooldowns (
+        user_id INTEGER NOT NULL,
+        purpose VARCHAR(50) NOT NULL,
+        binding_hash VARCHAR(64) NOT NULL,
+        last_resend_at TIMESTAMP NOT NULL,
+        PRIMARY KEY (user_id, purpose, binding_hash)
+      );
     `);
 
     // Migration pour les bases créées avant l'ajout de la contrainte UNIQUE

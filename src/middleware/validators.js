@@ -70,4 +70,28 @@ const depositRules = [
     .matches(/^\+?[0-9]{8,15}$/).withMessage('Numéro de téléphone invalide')
 ];
 
-module.exports = { validate, registerRules, loginRules, transferRules, depositRules };
+// Règles de validation — Renvoi de code OTP
+//
+// Le binding d'un code OTP est calculé sur `amount` + le numéro. Or /send et
+// /withdraw/* le calculent APRÈS que transferRules/depositRules aient appliqué
+// `.trim()` (les sanitizers d'express-validator réécrivent req.body). Sans le
+// même `.trim()` ici, un numéro saisi avec une espace de tête produisait un
+// binding différent : le renvoi répondait 200 et envoyait un SMS, mais
+// rafraîchissait un binding que la transaction ne consulterait jamais.
+const resendOtpRules = [
+  body('purpose')
+    .trim()
+    .notEmpty().withMessage('Le motif (purpose) est obligatoire'),
+
+  body('receiver_phone')
+    .optional()
+    .trim()
+    .matches(/^\+?[0-9]{8,15}$/).withMessage('Numéro de téléphone invalide'),
+
+  body('phone')
+    .optional()
+    .trim()
+    .matches(/^\+?[0-9]{8,15}$/).withMessage('Numéro de téléphone invalide')
+];
+
+module.exports = { validate, registerRules, loginRules, transferRules, depositRules, resendOtpRules };

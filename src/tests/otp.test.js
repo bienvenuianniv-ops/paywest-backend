@@ -38,16 +38,20 @@ const lastOtpCode = () => sendOtpSMS.mock.calls[sendOtpSMS.mock.calls.length - 1
 // Annule un transfert de test (recredite l'expediteur, decredite le
 // destinataire) pour ne pas faire deriver les soldes de paywest_test
 // d'un run a l'autre.
-const reverseTransfer = async (senderId, receiverPhone, amount) => {
+// `transaction` est l'objet renvoye par l'API (res.body.transaction) : on
+// supprime la ligne par son id et non par (sender_id, type, montant), qui
+// emportait aussi les transactions homonymes d'autres tests ou les fixtures
+// de paywest_test, source d'echecs intermittents difficiles a diagnostiquer.
+const reverseTransfer = async (transaction, receiverPhone, amount) => {
   const variants = phoneVariants(receiverPhone);
   const placeholders = variants.map((_, i) => `$${i + 1}`).join(', ');
   const receiver = await pool.query(
     `SELECT id FROM users WHERE phone IN (${placeholders})`,
     variants
   );
-  await pool.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [amount, senderId]);
+  await pool.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [amount, transaction.sender_id]);
   await pool.query('UPDATE wallets SET balance = balance - $1 WHERE user_id = $2', [amount, receiver.rows[0].id]);
-  await pool.query('DELETE FROM transactions WHERE sender_id = $1 AND type = $2 AND amount = $3', [senderId, 'transfer', amount]);
+  await pool.query('DELETE FROM transactions WHERE id = $1', [transaction.id]);
 };
 
 afterEach(async () => {
@@ -71,7 +75,7 @@ describe('OTP SMS — /api/transactions/send', () => {
     expect(res.statusCode).toBe(200);
     expect(sendOtpSMS).not.toHaveBeenCalled();
 
-    await reverseTransfer(res.body.transaction.sender_id, RECEIVER_PHONE, 100000);
+    await reverseTransfer(res.body.transaction, RECEIVER_PHONE, 100000);
   });
 
   it('exige un code au-dessus du seuil et envoie un SMS', async () => {
@@ -101,7 +105,7 @@ describe('OTP SMS — /api/transactions/send', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toHaveProperty('transaction');
 
-    await reverseTransfer(res.body.transaction.sender_id, RECEIVER_PHONE, 150000);
+    await reverseTransfer(res.body.transaction, RECEIVER_PHONE, 150000);
   });
 
   it('rejette un mauvais code sans exécuter le transfert', async () => {
@@ -155,7 +159,7 @@ describe('OTP SMS — /api/transactions/send', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ receiver_phone: RECEIVER_PHONE, amount: 150000, otp_code: code });
 
-    await reverseTransfer(first.body.transaction.sender_id, RECEIVER_PHONE, 150000);
+    await reverseTransfer(first.body.transaction, RECEIVER_PHONE, 150000);
 
     const second = await request(app)
       .post('/api/transactions/send')
@@ -238,7 +242,91 @@ describe('OTP SMS — /api/transactions/send', () => {
     expect(executed.statusCode).toBe(200);
     expect(executed.body).toHaveProperty('transaction');
 
-    await reverseTransfer(executed.body.transaction.sender_id, RECEIVER_PHONE, 150000);
+    await reverseTransfer(executed.body.transaction, RECEIVER_PHONE, 150000);
+    await pool.query('DELETE FROM idempotency_keys WHERE key = $1', [idempotencyKey]);
+  });
+
+  it('réémet un défi après un code déjà consommé (même montant, même destinataire)', async () => {
+    // Rien ne purge otp_codes : la ligne d'un transfert abouti restait
+    // indéfiniment et comptait comme « défi déjà émis », donc tout transfert
+    // ultérieur du même montant au même destinataire recevait un 403
+    // « un code a déjà été envoyé » sans qu'aucun SMS ne parte.
+    await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000 });
+
+    const code = lastOtpCode();
+
+    const done = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000, otp_code: code });
+
+    expect(done.statusCode).toBe(200);
+    await reverseTransfer(done.body.transaction, RECEIVER_PHONE, 150000);
+
+    sendOtpSMS.mockClear();
+
+    const again = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 150000 });
+
+    expect(again.statusCode).toBe(403);
+    expect(again.body.otp_required).toBe(true);
+    expect(again.body.message).not.toMatch(/déjà été envoyé/);
+    expect(sendOtpSMS).toHaveBeenCalledTimes(1);
+  });
+
+  it('un échec d\'envoi SMS ne bloque pas la tentative suivante', async () => {
+    // La ligne otp_codes était insérée avant l'envoi : quand le SMS échouait,
+    // elle survivait et faisait passer la tentative suivante pour un défi déjà
+    // émis, alors qu'aucun code n'était jamais arrivé à l'utilisateur.
+    sendOtpSMS.mockRejectedValueOnce(new Error('SMS provider down'));
+
+    const failed = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 165000 });
+
+    expect(failed.statusCode).toBe(502);
+
+    sendOtpSMS.mockClear();
+
+    const retry = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 165000 });
+
+    expect(retry.statusCode).toBe(403);
+    expect(retry.body.message).not.toMatch(/déjà été envoyé/);
+    expect(sendOtpSMS).toHaveBeenCalledTimes(1);
+  });
+
+  it('un 502 n\'est pas mis en cache par l\'Idempotency-Key', async () => {
+    // Le 502 invite explicitement à réessayer : le mettre en cache condamnait
+    // la clé, le client recevant indéfiniment l'erreur enregistrée.
+    const idempotencyKey = `otp-502-test-${Date.now()}`;
+    sendOtpSMS.mockRejectedValueOnce(new Error('SMS provider down'));
+
+    const first = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 172000 });
+
+    expect(first.statusCode).toBe(502);
+
+    const second = await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 172000 });
+
+    expect(second.statusCode).toBe(403);
+    expect(second.body.otp_required).toBe(true);
+
     await pool.query('DELETE FROM idempotency_keys WHERE key = $1', [idempotencyKey]);
   });
 
@@ -337,10 +425,16 @@ describe('POST /api/otp/resend', () => {
       .send({ receiver_phone: RECEIVER_PHONE, amount: 150000, otp_code: secondCode });
 
     expect(withNewCode.statusCode).toBe(200);
-    await reverseTransfer(withNewCode.body.transaction.sender_id, RECEIVER_PHONE, 150000);
+    await reverseTransfer(withNewCode.body.transaction, RECEIVER_PHONE, 150000);
   });
 
   it('applique un cooldown de 60s entre deux renvois', async () => {
+    // Un renvoi rafraichit un defi existant : il faut donc d'abord en creer un.
+    await request(app)
+      .post('/api/transactions/send')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ receiver_phone: RECEIVER_PHONE, amount: 175000 });
+
     const first = await request(app)
       .post('/api/otp/resend')
       .set('Authorization', `Bearer ${token}`)
@@ -354,6 +448,20 @@ describe('POST /api/otp/resend', () => {
       .send({ purpose: 'transactions.send', amount: 175000, receiver_phone: RECEIVER_PHONE });
 
     expect(second.statusCode).toBe(429);
+  });
+
+  it('refuse de creer un defi depuis /resend (anti SMS-bombing)', async () => {
+    // Le cooldown est clé sur (user, purpose, binding) et le binding derive du
+    // montant, controle par l'appelant. Si /resend pouvait creer un defi, il
+    // suffisait d'incrementer le montant pour forger un binding neuf a chaque
+    // appel et n'etre jamais soumis au cooldown : un SMS par requete.
+    const res = await request(app)
+      .post('/api/otp/resend')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ purpose: 'transactions.send', amount: 181000, receiver_phone: RECEIVER_PHONE });
+
+    expect(res.statusCode).toBe(404);
+    expect(sendOtpSMS).not.toHaveBeenCalled();
   });
 
 });
