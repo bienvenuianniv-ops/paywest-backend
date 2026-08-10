@@ -3,6 +3,8 @@ const { sendTransferNotification } = require('./notificationController');
 const { sendTransferSMS } = require('../config/sms');
 const logger = require('../config/logger');
 const { phoneVariants } = require('../utils/phoneHelper');
+const { computeFee } = require('../services/feeService');
+const { getPlatformUserId } = require('../services/platformAccount');
 
 // Envoyer de l'argent
 const sendMoney = async (req, res) => {
@@ -12,6 +14,12 @@ const sendMoney = async (req, res) => {
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ message: 'Montant invalide' });
   }
+
+  // Les frais sont a la charge de l'expediteur, EN PLUS du montant : le
+  // destinataire recoit exactement la somme saisie.
+  const fee = computeFee(amount);
+  const total = amount + fee;
+  const platformUserId = await getPlatformUserId();
 
   const client = await pool.connect();
 
@@ -42,16 +50,22 @@ const receiverResult = await client.query(
       [req.user.id]
     );
 
-    if (parseFloat(senderWallet.rows[0].balance) < amount) {
+    if (parseFloat(senderWallet.rows[0].balance) < total) {
       await client.query('ROLLBACK');
-      logger.warn('Solde insuffisant', { userId: req.user.id, amount });
-      return res.status(400).json({ message: 'Solde insuffisant' });
+      logger.warn('Solde insuffisant', { userId: req.user.id, amount, fee, total });
+      return res.status(400).json({
+        message: `Solde insuffisant : ${total.toLocaleString('fr-FR')} XOF requis`,
+        amount,
+        fee,
+        total_required: total,
+        balance: parseFloat(senderWallet.rows[0].balance)
+      });
     }
 
     await client.query(
       `UPDATE wallets SET balance = balance - $1, updated_at = NOW()
        WHERE user_id = $2`,
-      [amount, req.user.id]
+      [total, req.user.id]
     );
 
     await client.query(
@@ -60,10 +74,22 @@ const receiverResult = await client.query(
       [amount, receiver.id]
     );
 
+    // Credit plateforme en DERNIER : cette ligne de wallet est touchee par
+    // tous les transferts, son verrou serialise donc les transactions
+    // concurrentes jusqu'au COMMIT. La placer ici reduit la duree de
+    // detention au minimum.
+    if (fee > 0) {
+      await client.query(
+        `UPDATE wallets SET balance = balance + $1, updated_at = NOW()
+         WHERE user_id = $2`,
+        [fee, platformUserId]
+      );
+    }
+
     const transaction = await client.query(
-      `INSERT INTO transactions (sender_id, receiver_id, amount, type, status)
-       VALUES ($1, $2, $3, 'transfer', 'completed') RETURNING *`,
-      [req.user.id, receiver.id, amount]
+      `INSERT INTO transactions (sender_id, receiver_id, amount, type, status, fee)
+       VALUES ($1, $2, $3, 'transfer', 'completed', $4) RETURNING *`,
+      [req.user.id, receiver.id, amount, fee]
     );
 
     const senderInfo = await client.query(
@@ -77,6 +103,7 @@ const receiverResult = await client.query(
       senderId: req.user.id,
       receiverId: receiver.id,
       amount,
+      fee,
       transactionId: transaction.rows[0].id
     });
 
@@ -108,7 +135,9 @@ const receiverResult = await client.query(
 
     res.json({
       message: 'Transfert effectué avec succès',
-      transaction: transaction.rows[0]
+      transaction: transaction.rows[0],
+      fee,
+      total_debit: total
     });
 
   } catch (error) {

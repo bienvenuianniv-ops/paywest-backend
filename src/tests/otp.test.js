@@ -49,8 +49,22 @@ const reverseTransfer = async (transaction, receiverPhone, amount) => {
     `SELECT id FROM users WHERE phone IN (${placeholders})`,
     variants
   );
-  await pool.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [amount, transaction.sender_id]);
+  // L'expediteur a ete debite de amount + fee, la plateforme creditee de fee :
+  // annuler le montant seul ferait deriver les soldes d'un run a l'autre, et
+  // silencieusement (l'invariant somme des wallets resterait vrai).
+  const fee = parseFloat(transaction.fee) || 0;
+
+  await pool.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [amount + fee, transaction.sender_id]);
   await pool.query('UPDATE wallets SET balance = balance - $1 WHERE user_id = $2', [amount, receiver.rows[0].id]);
+
+  if (fee > 0) {
+    await pool.query(
+      `UPDATE wallets SET balance = balance - $1
+       WHERE user_id = (SELECT id FROM users WHERE role = 'platform')`,
+      [fee]
+    );
+  }
+
   await pool.query('DELETE FROM transactions WHERE id = $1', [transaction.id]);
 };
 
