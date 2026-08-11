@@ -30,9 +30,23 @@ const getPlatformBalance = async (req, res) => {
     // decaissement, deja signalee au demarrage, et qui n'a aucune raison de
     // rendre le solde plateforme illisible. La route garde ainsi son contrat
     // d'origine.
-    let payoutDestination = null;
+    // Seule la RESOLUTION est rattrapee ici, pas la lecture du wallet. Un
+    // try/catch qui engloberait les deux renverrait le meme null pour « le
+    // decaissement n'est pas configure » et pour « la requete a echoue » —
+    // alors que la documentation de la route donne au null le premier sens
+    // seulement. Un admin qui consulte la seule fenetre sur ses revenus deja
+    // decaisses s'entendrait dire que la fonctionnalite n'est pas configuree
+    // alors que la base a simplement bronche. Une erreur de requete tombe donc
+    // dans le catch general et sort en 500, qui est la verite.
+    let destinationUserId = null;
     try {
-      const destinationUserId = await getPayoutDestinationId();
+      destinationUserId = await getPayoutDestinationId();
+    } catch (error) {
+      logger.error('Décaissement non configuré', { error: error.message });
+    }
+
+    let payoutDestination = null;
+    if (destinationUserId !== null) {
       const destinationWallet = await pool.query(
         'SELECT balance, currency FROM wallets WHERE user_id = $1',
         [destinationUserId]
@@ -47,8 +61,6 @@ const getPlatformBalance = async (req, res) => {
           currency: destinationWallet.rows[0].currency
         };
       }
-    } catch (error) {
-      logger.error('Solde beneficiaire indisponible', { error: error.message });
     }
 
     res.json({

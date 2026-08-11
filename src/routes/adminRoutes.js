@@ -6,7 +6,7 @@ const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 const auditLog = require('../middleware/auditLog');
 const { idempotency } = require('../middleware/idempotency');
 const { requireOtp } = require('../middleware/requireOtp');
-const { transactionLimiter } = require('../middleware/rateLimiter');
+const { payoutLimiter } = require('../middleware/rateLimiter');
 const pool = require('../config/db');
 
 const adminOnly = [verifyToken, verifyRole('admin')];
@@ -163,9 +163,11 @@ router.get('/audit', adminOnly, async (req, res) => {
  *       décaissements — les revenus déjà sortis du wallet plateforme.
  *       Ce second bloc est la seule fenêtre sur ce compte : il est
  *       volontairement non connectable, donc aucune session ne peut consulter
- *       son solde autrement. Il vaut `null` si le décaissement n'est pas
- *       configuré (variable `PAYOUT_DESTINATION_EMAIL` absente ou email
- *       inconnu) — le solde plateforme reste alors lisible.
+ *       son solde autrement. Il vaut `null` uniquement si le décaissement
+ *       n'est pas configuré — variable `PAYOUT_DESTINATION_EMAIL` absente,
+ *       email inconnu, compte bénéficiaire connectable, ou compte sans
+ *       wallet — et le solde plateforme reste alors lisible. Une panne de
+ *       lecture, elle, sort en 500 : `null` ne masque jamais une erreur.
  *     tags: [Administration]
  *     security:
  *       - bearerAuth: []
@@ -213,11 +215,15 @@ router.get(
   getPlatformBalance
 );
 
-// Ordre : transactionLimiter d'abord (cette route est la seule route admin a
+// Ordre : payoutLimiter d'abord (cette route est la seule route admin a
 // envoyer un SMS facture par requete — l'OTP admin.payout n'a pas de seuil,
 // donc amount = 1, 2, 3... genere un SMS chacun ; sans limiteur ici, un jeton
 // admin vole permet de bombarder de SMS le telephone de l'admin, le
-// generalLimiter de /api ne bornant qu'a 100 requetes/15 min/IP). Puis
+// generalLimiter de /api ne bornant qu'a 100 requetes/15 min/IP). Limiteur
+// dedie et indexe sur l'utilisateur : une limite par IP ne suit pas un jeton
+// vole qui change d'adresse, et le compteur partage de transactionLimiter
+// ferait dependre un decaissement du trafic d'autres clients sur la meme IP.
+// Place apres adminOnly, dont verifyToken renseigne req.user. Puis
 // idempotency avant auditLog : idempotency renvoie une reponse en cache sur
 // rejeu via res.json, deja l'enveloppe posee par auditLog — si auditLog
 // s'enregistrait en premier, un rejeu ecrirait une seconde ligne d'audit a
@@ -278,7 +284,7 @@ router.get(
 router.post(
   '/payout',
   adminOnly,
-  transactionLimiter,
+  payoutLimiter,
   idempotency('admin.payout'),
   auditLog('admin_payout'),
   validatePayoutAmount,

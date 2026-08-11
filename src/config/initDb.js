@@ -107,21 +107,30 @@ async function initDb() {
     //
     // Place APRES le bloc qui pose la contrainte UNIQUE sur wallets.user_id :
     // le ON CONFLICT (user_id) ci-dessous en depend.
+    // DO UPDATE et non DO NOTHING, meme raison que pour le compte tresorerie
+    // plus bas : l'adresse est reservee par convention seulement, et
+    // /api/auth/register est ouvert a tous. Sur une base ou quelqu'un aurait
+    // pris cette adresse de vitesse, DO NOTHING laissait la ligne squattee
+    // intacte tout en affichant « Compte plateforme pret » — et tous les frais
+    // de transfert seraient alles crediter ce compte. Sans effet sur les bases
+    // existantes, ou la reecriture est un no-op valeur pour valeur.
+    //
+    // Effet de bord bienvenu : DO UPDATE renvoie toujours une ligne, ce qui
+    // supprime le repli SELECT dont DO NOTHING avait besoin (il ne renvoyait
+    // rien quand le compte existait deja, et sans repli la creation du wallet
+    // echouait des le deuxieme lancement du script).
     const platformInsert = await pool.query(`
       INSERT INTO users (full_name, email, phone, password, role)
       VALUES ('PayWest Plateforme', 'platform@paywest.internal', 'PLATFORM-ACCOUNT', '*', 'platform')
-      ON CONFLICT (email) DO NOTHING
+      ON CONFLICT (email) DO UPDATE
+        SET full_name = EXCLUDED.full_name,
+            phone = EXCLUDED.phone,
+            password = EXCLUDED.password,
+            role = EXCLUDED.role
       RETURNING id
     `);
 
-    // ON CONFLICT DO NOTHING ne renvoie AUCUNE ligne quand le compte existe
-    // deja : sans ce repli, la creation du wallet echouerait silencieusement
-    // des le deuxieme lancement de ce script.
-    const platformId = platformInsert.rows.length > 0
-      ? platformInsert.rows[0].id
-      : (await pool.query(
-          `SELECT id FROM users WHERE email = 'platform@paywest.internal'`
-        )).rows[0].id;
+    const platformId = platformInsert.rows[0].id;
 
     await pool.query(
       `INSERT INTO wallets (user_id, balance, currency)
@@ -148,18 +157,30 @@ async function initDb() {
     // ORDER BY. 'treasury' n'est par ailleurs dans aucun verifyRole ni dans
     // les validRoles d'updateUserRole : le role n'est ni accordable ni
     // retirable par l'API.
+    // DO UPDATE et non DO NOTHING : l'adresse est reservee mais rien ne la
+    // protege a l'inscription — /api/auth/register est ouvert, ne verifie
+    // aucune liste d'adresses reservees, et l'email figure en clair dans un
+    // depot public. Quelqu'un peut donc inscrire un compte a cette adresse
+    // AVANT que celui-ci ne soit cree. Avec DO NOTHING, ce script affichait
+    // alors « Compte tresorerie pret » sans rien corriger, et chaque
+    // decaissement aurait credite un wallet dont un tiers a le mot de passe.
+    // DO UPDATE reecrit la forme quoi qu'il arrive : le compte redevient non
+    // connectable et injoignable par transfert.
+    //
+    // Ce script reste la reparation ; le refus a l'execution vit dans
+    // payoutDestination.js, qui verifie password = '*' a chaque resolution.
     const treasuryInsert = await pool.query(`
       INSERT INTO users (full_name, email, phone, password, role)
       VALUES ('PayWest Trésorerie', 'treasury@paywest.internal', 'TREASURY-ACCOUNT', '*', 'treasury')
-      ON CONFLICT (email) DO NOTHING
+      ON CONFLICT (email) DO UPDATE
+        SET full_name = EXCLUDED.full_name,
+            phone = EXCLUDED.phone,
+            password = EXCLUDED.password,
+            role = EXCLUDED.role
       RETURNING id
     `);
 
-    const treasuryId = treasuryInsert.rows.length > 0
-      ? treasuryInsert.rows[0].id
-      : (await pool.query(
-          `SELECT id FROM users WHERE email = 'treasury@paywest.internal'`
-        )).rows[0].id;
+    const treasuryId = treasuryInsert.rows[0].id;
 
     await pool.query(
       `INSERT INTO wallets (user_id, balance, currency)

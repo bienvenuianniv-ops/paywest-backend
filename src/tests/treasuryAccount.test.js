@@ -13,7 +13,13 @@ const app = require('../../src/index');
 const pool = require('../../src/config/db');
 const { getPlatformUserId } = require('../../src/services/platformAccount');
 
-const TREASURY_EMAIL = 'treasury@paywest.internal';
+// Resolu depuis l'environnement et NON code en dur : c'est cette variable que
+// createPayout suit pour choisir le beneficiaire. Avec une adresse en dur, ces
+// quatre tests resteraient verts en inspectant une ligne que le decaissement
+// n'utilise pas — y compris dans le cas precis qu'ils existent pour interdire,
+// une variable repointee vers un compte de login. setup.js garantit que la
+// variable est definie et que la ligne existe.
+const TREASURY_EMAIL = process.env.PAYOUT_DESTINATION_EMAIL;
 
 // Le compte tresorerie est le beneficiaire des decaissements en production.
 // Tout son interet est d'etre un cul-de-sac : l'argent y entre par
@@ -101,15 +107,45 @@ describe('compte tresorerie', () => {
       .set('Authorization', `Bearer ${login.body.token}`)
       .send({ receiver_phone: treasury.rows[0].phone, amount: 1000 });
 
-    // Le telephone du compte ne satisfait pas ^\+?[0-9]{8,15}$ : le validateur
-    // de transferRules le rejette avant meme la recherche en base.
-    expect(res.status).toBe(400);
+    try {
+      // Le telephone du compte ne satisfait pas ^\+?[0-9]{8,15}$ : le
+      // validateur de transferRules le rejette avant meme la recherche en base.
+      expect(res.status).toBe(400);
 
-    const received = await pool.query(
-      `SELECT COUNT(*) FROM transactions WHERE receiver_id = (SELECT id FROM users WHERE email = $1)
-       AND type = 'transfer'`,
-      [TREASURY_EMAIL]
-    );
-    expect(parseInt(received.rows[0].count, 10)).toBe(0);
+      const received = await pool.query(
+        `SELECT COUNT(*) FROM transactions WHERE receiver_id = (SELECT id FROM users WHERE email = $1)
+         AND type = 'transfer'`,
+        [TREASURY_EMAIL]
+      );
+      expect(parseInt(received.rows[0].count, 10)).toBe(0);
+    } finally {
+      // Le jour ou la garde regresse — c'est-a-dire le jour ou ce test sert
+      // enfin a quelque chose — le transfert REUSSIT : l'assertion echoue,
+      // mais 1 000 XOF plus les frais ont deja quitte le wallet admin pour le
+      // wallet tresorerie, definitivement. La somme des wallets de
+      // paywest_test derive alors silencieusement, et les egalites strictes
+      // de payout.test.js sur le solde beneficiaire se mettent a casser sans
+      // rapport apparent avec la cause. Un test qui detecte une regression ne
+      // doit pas laisser la base dans l'etat qu'il denonce.
+      if (res.body && res.body.transaction) {
+        const tx = res.body.transaction;
+        await pool.query('UPDATE wallets SET balance = balance - $1 WHERE user_id = $2', [
+          parseFloat(tx.amount),
+          tx.receiver_id
+        ]);
+        await pool.query('UPDATE wallets SET balance = balance + $1 WHERE user_id = $2', [
+          parseFloat(tx.amount) + parseFloat(tx.fee || 0),
+          tx.sender_id
+        ]);
+        if (parseFloat(tx.fee || 0) > 0) {
+          await pool.query(
+            `UPDATE wallets SET balance = balance - $1
+             WHERE user_id = (SELECT id FROM users WHERE role = 'platform')`,
+            [parseFloat(tx.fee)]
+          );
+        }
+        await pool.query('DELETE FROM transactions WHERE id = $1', [tx.id]);
+      }
+    }
   });
 });

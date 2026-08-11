@@ -32,6 +32,34 @@ const payoutCount = async () => {
   return parseInt(res.rows[0].count, 10);
 };
 
+// Solde du wallet plateforme ET plus grand id de transaction, lus dans le
+// meme instantane. C'est l'appariement qui compte : un transfert insere sa
+// ligne et credite les frais dans une seule transaction SQL, les deux
+// deviennent donc visibles ensemble. Deux requetes separees pourraient voir
+// le credit sans voir la ligne, et le bruit mesure ci-dessous serait faux.
+const platformSnapshot = async () => {
+  const res = await pool.query(
+    `SELECT (SELECT balance FROM wallets WHERE user_id = $1) AS balance,
+            (SELECT COALESCE(MAX(id), 0) FROM transactions) AS max_tx_id`,
+    [platformUserId]
+  );
+  return {
+    balance: parseFloat(res.rows[0].balance),
+    maxTxId: parseInt(res.rows[0].max_tx_id, 10)
+  };
+};
+
+// Frais credites au wallet plateforme par les autres suites entre deux
+// instantanes. Le decaissement lui-meme a fee = 0 et n'entre donc pas dans
+// cette somme, meme si sa ligne tombe dans l'intervalle.
+const feesCreditedBetween = async (fromTxId, toTxId) => {
+  const res = await pool.query(
+    `SELECT COALESCE(SUM(fee), 0) AS total FROM transactions WHERE id > $1 AND id <= $2`,
+    [fromTxId, toTxId]
+  );
+  return parseFloat(res.rows[0].total);
+};
+
 // Cree du solde sur le wallet plateforme pour pouvoir le decaisser. La
 // contrepartie est retiree en fin de test : la somme des wallets de
 // paywest_test doit etre strictement identique avant et apres le run.
@@ -243,14 +271,15 @@ describe('POST /api/admin/payout', () => {
 
     const code = lastOtpCode();
 
-    const platformBefore = await balanceOf(platformUserId);
+    const platformBefore = await platformSnapshot();
 
     const res = await request(app)
       .post('/api/admin/payout')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ amount, otp_code: code });
 
-    const platformAfter = await balanceOf(platformUserId);
+    const platformAfter = await platformSnapshot();
+    const feesDuringWindow = await feesCreditedBetween(platformBefore.maxTxId, platformAfter.maxTxId);
 
     // try/finally : d'autres suites de tests tournent en parallele sur les
     // memes comptes partages (plateforme, admin) et peuvent faire echouer une
@@ -258,15 +287,22 @@ describe('POST /api/admin/payout', () => {
     // echec ici sauterait reversePayout et laisserait une derive permanente
     // dans paywest_test — inacceptable pour une route qui deplace de l'argent.
     //
-    // Pas d'egalite stricte sur le solde plateforme : d'autres suites le
-    // creditent en frais en parallele, ce solde est instable par
-    // construction. destinationUserId, lui, est le compte de test dedie —
-    // aucune autre suite n'y touche, l'egalite stricte y est sure. Le cote
-    // plateforme n'est en revanche jamais laisse sans assertion : les autres
-    // suites ne font QUE crediter ce wallet (des frais), jamais le debiter —
-    // une comparaison en <= reste donc deterministe malgre le parallelisme,
-    // et un debit supprime, inverse de signe, ou pointe sur le mauvais
-    // user_id ferait echouer cette assertion.
+    // Le solde du beneficiaire supporte l'egalite stricte : aucune autre suite
+    // n'y touche. Celui de la plateforme, non — les autres suites le creditent
+    // en frais pendant la fenetre. On ne se contente pas pour autant d'une
+    // inegalite : les frais concurrents ne font qu'AUGMENTER ce solde, donc
+    // toute borne du type `apres <= avant - montant` n'est vraie que quand
+    // aucun frais n'est tombe, et `apres >= avant - montant` est vraie meme si
+    // le debit a disparu. Les deux sont soit instables, soit vides.
+    //
+    // On mesure donc explicitement le bruit : platformSnapshot() lit le solde
+    // et le plus grand id de transaction dans le MEME instantane, et un
+    // transfert rend sa ligne et son credit de frais visibles ensemble (meme
+    // transaction SQL). Les frais tombes pendant la fenetre sont donc
+    // exactement ceux des transactions d'id compris entre les deux bornes, et
+    // l'egalite ci-dessous est stricte malgre le parallelisme — un debit
+    // supprime, inverse de signe, du mauvais montant ou pointe sur le mauvais
+    // user_id la fait echouer.
     try {
       expect(res.statusCode).toBe(200);
       expect(res.body.transaction.type).toBe('payout');
@@ -275,7 +311,7 @@ describe('POST /api/admin/payout', () => {
       expect(res.body.transaction.receiver_id).toBe(destinationUserId);
 
       expect(await balanceOf(destinationUserId)).toBe(destinationBefore + amount);
-      expect(platformAfter).toBeLessThanOrEqual(platformBefore - amount);
+      expect(platformAfter.balance).toBe(platformBefore.balance - amount + feesDuringWindow);
     } finally {
       // Deux issues possibles : le decaissement a reussi (une ligne de
       // transaction existe, reversePayout retire ce qui a ete credite au

@@ -67,16 +67,37 @@ const pool = require('../../src/config/db');
 // creee ici si la base de test etait neuve. Une divergence entre les deux
 // endroits ferait passer les tests sur une forme que la production n'a pas.
 beforeAll(async () => {
+  // ON CONFLICT sans cible, et non ON CONFLICT (email) : l'email est
+  // parametre mais le telephone est fixe, or users.phone porte lui aussi une
+  // contrainte UNIQUE. Si PAYOUT_DESTINATION_EMAIL designe une autre adresse
+  // sur une base ou initDb.js a deja cree treasury@paywest.internal avec le
+  // telephone TREASURY-ACCOUNT, l'insertion entre en conflit sur
+  // users_phone_key — que ON CONFLICT (email) n'attrape pas. Ce hook etant
+  // enregistre par setupFilesAfterEnv, le 23505 non gere ferait echouer le
+  // beforeAll de TOUS les fichiers de test, sur une erreur sans rapport avec
+  // ce qu'ils verifient.
   await pool.query(
     `INSERT INTO users (full_name, email, phone, password, role)
      VALUES ('PayWest Trésorerie', $1, 'TREASURY-ACCOUNT', '*', 'treasury')
-     ON CONFLICT (email) DO NOTHING`,
+     ON CONFLICT DO NOTHING`,
     [process.env.PAYOUT_DESTINATION_EMAIL]
   );
 
   const destination = await pool.query('SELECT id FROM users WHERE email = $1', [
     process.env.PAYOUT_DESTINATION_EMAIL
   ]);
+
+  // Le DO NOTHING ci-dessus avale aussi le conflit de telephone : dans ce cas
+  // aucune ligne n'est creee et la resolution ne trouve rien. Message explicite
+  // plutot qu'un TypeError sur rows[0] repete dans chaque fichier de test.
+  if (destination.rows.length === 0) {
+    throw new Error(
+      `Aucun compte pour PAYOUT_DESTINATION_EMAIL (${process.env.PAYOUT_DESTINATION_EMAIL}). ` +
+      'Le telephone TREASURY-ACCOUNT est probablement deja pris par un autre compte ' +
+      'de cette base : lancer `node src/config/initDb.js` et pointer la variable sur ' +
+      'treasury@paywest.internal.'
+    );
+  }
 
   await pool.query(
     `INSERT INTO wallets (user_id, balance, currency)

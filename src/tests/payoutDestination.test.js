@@ -57,4 +57,17 @@ describe('payoutDestination', () => {
 
     await expect(getPayoutDestinationId()).rejects.toThrow(/plateforme/i);
   });
+
+  it('refuse un compte beneficiaire connectable', async () => {
+    // Toute la surete du decaissement tient a ce que le beneficiaire n'ait pas
+    // de session : un jeton admin vole peut declencher un decaissement, il ne
+    // doit pas pouvoir en recuperer le produit. Deux chemins mènent pourtant a
+    // un beneficiaire connectable — une variable repointee vers un compte de
+    // login, et l'inscription d'un compte a l'adresse reservee avant que le
+    // vrai compte ne soit cree (/api/auth/register est ouvert et ne reserve
+    // aucune adresse). Le compte admin sert ici de compte connectable reel.
+    process.env.PAYOUT_DESTINATION_EMAIL = 'bienvenu@paywest.com';
+
+    await expect(getPayoutDestinationId()).rejects.toThrow(/connectable/i);
+  });
 });
