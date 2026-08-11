@@ -52,7 +52,7 @@ jest.mock('africastalking', () => jest.fn(() => ({
 
 const pool = require('../../src/config/db');
 
-// Compte de destination de decaissement, cree ici plutot que dans
+// Compte tresorerie (beneficiaire des decaissements), cree ici plutot que dans
 // payout.test.js : payoutDestination.test.js resout lui aussi
 // PAYOUT_DESTINATION_EMAIL contre la base, et Jest execute les fichiers de
 // test dans un ordre non garanti — sur une base paywest_test neuve,
@@ -60,14 +60,16 @@ const pool = require('../../src/config/db');
 // sur expected.rows[0].id, faute de ligne a trouver. Ce hook, enregistre par
 // un fichier setupFilesAfterEnv, s'execute avant le beforeAll de CHAQUE
 // fichier de test — c'est le seul endroit garanti anterieur aux deux suites.
-// Idempotent (ON CONFLICT DO NOTHING) et volontairement leger puisqu'il
-// tourne devant chaque fichier : mot de passe '*' (non connectable),
-// telephone non numerique (jamais visable comme destinataire d'un
-// transfert), sur le modele du compte plateforme d'initDb.js.
+//
+// La forme inseree doit rester identique a celle d'initDb.js (meme nom, meme
+// telephone, meme mot de passe '*', meme role 'treasury') : treasuryAccount.
+// test.js verifie ces proprietes une a une, et il les verifierait sur la ligne
+// creee ici si la base de test etait neuve. Une divergence entre les deux
+// endroits ferait passer les tests sur une forme que la production n'a pas.
 beforeAll(async () => {
   await pool.query(
     `INSERT INTO users (full_name, email, phone, password, role)
-     VALUES ('PayWest Destination Test', $1, 'PAYOUT-DEST-TEST', '*', 'customer')
+     VALUES ('PayWest Trésorerie', $1, 'TREASURY-ACCOUNT', '*', 'treasury')
      ON CONFLICT (email) DO NOTHING`,
     [process.env.PAYOUT_DESTINATION_EMAIL]
   );

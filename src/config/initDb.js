@@ -132,6 +132,44 @@ async function initDb() {
 
     console.log(`✅ Compte plateforme prêt (user_id=${platformId})`);
 
+    // Compte tresorerie : beneficiaire des decaissements (/api/admin/payout).
+    //
+    // Meme forme que le compte plateforme ci-dessus, et pour la meme raison :
+    // password '*' n'est pas un hash bcrypt valide (personne ne s'y connecte),
+    // telephone non numerique rejete par le validateur (personne ne lui envoie
+    // d'argent). C'est ce qui fait de ce compte un cul-de-sac : les revenus y
+    // entrent par le decaissement, et aucune route de l'API ne peut les en
+    // sortir. Un jeton admin vole permet donc de declencher un decaissement,
+    // mais pas d'en recuperer le produit.
+    //
+    // Le role est 'treasury' et surtout PAS 'platform' : platformAccount.js
+    // resout le compte plateforme par `role = 'platform' ORDER BY id LIMIT 1`,
+    // un second porteur de ce role en ferait un candidat departage par un
+    // ORDER BY. 'treasury' n'est par ailleurs dans aucun verifyRole ni dans
+    // les validRoles d'updateUserRole : le role n'est ni accordable ni
+    // retirable par l'API.
+    const treasuryInsert = await pool.query(`
+      INSERT INTO users (full_name, email, phone, password, role)
+      VALUES ('PayWest Trésorerie', 'treasury@paywest.internal', 'TREASURY-ACCOUNT', '*', 'treasury')
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id
+    `);
+
+    const treasuryId = treasuryInsert.rows.length > 0
+      ? treasuryInsert.rows[0].id
+      : (await pool.query(
+          `SELECT id FROM users WHERE email = 'treasury@paywest.internal'`
+        )).rows[0].id;
+
+    await pool.query(
+      `INSERT INTO wallets (user_id, balance, currency)
+       VALUES ($1, 0, 'XOF')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [treasuryId]
+    );
+
+    console.log(`✅ Compte trésorerie prêt (user_id=${treasuryId})`);
+
     console.log('✅ Tables créées avec succès !');
     process.exit(0);
   } catch (error) {

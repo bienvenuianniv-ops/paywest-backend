@@ -51,13 +51,16 @@ const reversePayout = async (transaction) => {
 };
 
 // Le beneficiaire de test doit etre une ligne que personne d'autre ne touche :
-// PAYOUT_DESTINATION_EMAIL (en test uniquement — la prod garde le vrai compte
-// PayWest) pointe vers un compte dedie, inactif, qu'aucune autre suite ne
-// credite ni ne debite. Sans ca, les assertions de solde sur ce compte
-// deviennent une course avec les autres workers Jest qui tournent en
-// parallele sur la meme base paywest_test — c'est exactement ce qui causait
-// des echecs intermittents quand PAYOUT_DESTINATION_EMAIL pointait vers le
-// compte admin partage. La creation elle-meme (idempotente) vit desormais
+// PAYOUT_DESTINATION_EMAIL pointe vers le compte tresorerie, dedie et inactif,
+// qu'aucune autre suite ne credite ni ne debite. Sans ca, les assertions de
+// solde sur ce compte deviennent une course avec les autres workers Jest qui
+// tournent en parallele sur la meme base paywest_test — c'est exactement ce
+// qui causait des echecs intermittents quand PAYOUT_DESTINATION_EMAIL pointait
+// vers le compte admin partage. Test et production designent desormais le meme
+// compte (treasury@paywest.internal), ce qui supprime la divergence : la
+// propriete qui rend ce compte sur en production — non connectable, hors
+// d'atteinte des transferts — est celle-la meme qui le rend stable en test.
+// La creation elle-meme (idempotente) vit desormais
 // dans src/tests/setup.js, qui s'execute avant CHAQUE fichier de test :
 // payoutDestination.test.js resout aussi cet email, et Jest n'ordonne pas les
 // fichiers de test entre eux — la creer ici seulement laissait cette autre
