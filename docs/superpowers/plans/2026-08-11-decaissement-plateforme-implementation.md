@@ -1274,7 +1274,7 @@ npm test
 $env:NODE_ENV='test'; node -e "const p=require('./src/config/db');p.query('SELECT SUM(balance) FROM wallets').then(r=>{console.log(r.rows[0].sum);process.exit(0)})"
 ```
 
-Expected: les deux sommes sont **strictement identiques**, et `npm test` passe à 113 tests (106 + 7).
+Expected: les deux sommes sont **strictement identiques**, et `npm test` passe à 116 tests (109 + 7).
 
 - [ ] **Step 7: Commit**
 
@@ -1289,11 +1289,19 @@ git commit -m "feat(payout): decaissement du wallet plateforme vers le compte be
 ### Task 6: Documentation Swagger et vérification finale
 
 **Files:**
-- Modify: `src/routes/adminRoutes.js` (blocs Swagger uniquement)
+- Modify: `src/routes/adminRoutes.js` (blocs Swagger)
+- Modify: `src/routes/otpRoutes.js` (une valeur d'`enum` Swagger)
+- Modify: `src/controllers/payoutController.js` (un commentaire, aucune logique)
 
 **Interfaces:**
 - Consumes: les deux routes des tâches 4 et 5.
 - Produces: rien de consommé par une tâche ultérieure.
+
+**Deux corrections remontées par les revues des tâches 2 et 5, à traiter ici :**
+
+1. `src/routes/otpRoutes.js` — l'`enum` Swagger du champ `purpose` liste `[transactions.send, withdraw.wave, withdraw.orange]`. Depuis la tâche 2, `/api/otp/resend` accepte aussi `admin.payout`. Ajouter cette valeur à l'`enum`.
+
+2. `src/controllers/payoutController.js` — le commentaire du verrouillage ordonné affirme que « l'ordre croissant rend les deux chemins compatibles ». C'est trop fort : `sendMoney` verrouille par rôle (expéditeur → destinataire → plateforme), pas par `user_id`. L'ordre croissant ne supprime le cycle que tant que l'id du bénéficiaire est **inférieur** à celui du compte plateforme — vrai aujourd'hui (bénéficiaire id 1, plateforme id 51), pas garanti en général. Reformuler le commentaire pour énoncer cette condition au lieu de promettre une garantie générale. **Ne changer aucune ligne de code**, seulement le commentaire.
 
 - [ ] **Step 1: Documenter la route de solde**
 
@@ -1388,7 +1396,7 @@ Un bloc Swagger mal indenté ou au YAML invalide n'apparaît simplement pas dans
 - [ ] **Step 4: Lancer la suite complète une dernière fois**
 
 Run: `npm test`
-Expected: PASS, 113 tests, 0 échec.
+Expected: PASS, 116 tests, 16 suites, 0 échec.
 
 - [ ] **Step 5: Commit**
 
@@ -1436,4 +1444,4 @@ Cette étape n'est pas exécutable par un agent seul : elle demande une décisio
 
 **Cohérence des noms :** `getPayoutDestinationId` / `resetPayoutDestinationCache` (tâche 1) sont utilisés sous ces noms exacts en tâche 5. `OTP_THRESHOLDS` et `REQUIRED_BODY_FIELDS` (tâche 2) sont consommés sous ces noms en tâches 2 et 5. `getPlatformBalance` / `createPayout` (tâches 4 et 5) correspondent aux imports d'`adminRoutes.js`.
 
-**Comptes de tests attendus :** 87 avant le chantier → 92 (T1) → 101 (T2) → 106 (T3) → 109 (T4) → 113 (T5, +7 : le fichier `payout.test.js` en compte 10 au total).
+**Comptes de tests attendus :** 87 avant le chantier → 92 (T1) → 101 (T2) → 106 (T3) → 109 (T4) → **116** (T5, +7 : le fichier `payout.test.js` en compte 10 au total).
