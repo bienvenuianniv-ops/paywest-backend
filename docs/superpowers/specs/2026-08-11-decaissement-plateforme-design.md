@@ -201,6 +201,14 @@ Aucun vocabulaire nouveau : ce sont les codes des routes monétaires existantes.
 
 - `auditLog('admin_payout')` alimente `audit_logs`, lisible via
   `GET /api/admin/audit`
+- **Masquage ajouté au passage** : `auditLog` enregistre `req.body`
+  intégralement. `/api/admin/payout` est la première route à combiner
+  `auditLog` et `requireOtp`, donc sans correctif le code OTP d'un
+  décaissement réussi serait écrit en clair dans `audit_logs`. Le middleware
+  masque désormais `otp_code`, `password`, `new_password`, `old_password` et
+  `pin`. Le code est déjà consommé au moment où la ligne est écrite,
+  l'exposition est donc faible — mais un secret d'authentification en clair
+  dans un journal consultable est une mauvaise base à poser.
 - La ligne `transactions` de type `payout` (`sender_id` = plateforme,
   `receiver_id` = bénéficiaire) est la trace comptable
 - `logger.info` au succès : montant, admin appelant, soldes après opération
