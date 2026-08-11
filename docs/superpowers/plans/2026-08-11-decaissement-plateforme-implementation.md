@@ -60,17 +60,30 @@ Spec de référence : `docs/superpowers/specs/2026-08-11-decaissement-plateforme
 Ajouter dans `.env` (fichier local, jamais commité — il est couvert par `.gitignore` en `.env*`) :
 
 ```
-PAYOUT_DESTINATION_EMAIL=bienvenu@paywest.com
+PAYOUT_DESTINATION_EMAIL=treasury@paywest.internal
 ```
 
-Ce compte existe dans la base de production **et** dans `paywest_test` (c'est un des trois comptes cœur seedés). La valeur retenue pour la production sera confirmée par l'utilisateur au moment du déploiement (tâche 6).
+> **Corrigé après la revue finale de branche (2026-08-11).** Ce plan indiquait
+> initialement `bienvenu@paywest.com`. La revue a montré que c'est le compte de
+> **login administrateur** : un JWT admin volé pouvait décaisser puis sortir
+> l'argent par `/api/transactions/send` en tranches sous le seuil OTP. Le
+> bénéficiaire est désormais un compte trésorerie dédié et non connectable,
+> créé par `src/config/initDb.js` sur le modèle du compte plateforme
+> (`password = '*'`, téléphone non numérique, `role = 'treasury'`). Voir la
+> section « Pourquoi un compte trésorerie dédié et non le compte admin » de la
+> spec. Test et production désignent le même compte.
 
 Ajouter dans `.env.example`, après la ligne `ORANGE_WEBHOOK_SECRET=` :
 
 ```
 # Compte PayWest qui recoit les decaissements du wallet plateforme.
 # Resolu cote serveur uniquement : jamais lu dans le corps d'une requete.
-PAYOUT_DESTINATION_EMAIL=
+# Doit designer un compte non connectable (mot de passe '*', telephone non
+# numerique) : c'est ce qui empeche un jeton admin vole de sortir le produit
+# du decaissement. Le compte tresorerie cree par `node src/config/initDb.js`
+# remplit cette condition — ne pas pointer cette variable vers un compte de
+# login, meme administrateur.
+PAYOUT_DESTINATION_EMAIL=treasury@paywest.internal
 ```
 
 - [ ] **Step 2: Écrire le test qui échoue**
@@ -1410,7 +1423,7 @@ git commit -m "docs(payout): documenter les routes de solde et de decaissement"
 
 Cette étape n'est pas exécutable par un agent seul : elle demande une décision et un accord explicite.
 
-1. **Demander à l'utilisateur** quel compte doit recevoir les décaissements en production (valeur de `PAYOUT_DESTINATION_EMAIL`). La valeur locale `bienvenu@paywest.com` est un choix par défaut, pas une décision prise.
+1. **Décision prise le 2026-08-11** : `PAYOUT_DESTINATION_EMAIL = treasury@paywest.internal`, compte trésorerie dédié et non connectable. Avant toute chose, **créer la ligne en production** (`node src/config/initDb.js` est idempotent, ou l'`INSERT` équivalent) et la relire pour vérifier `password = '*'`, téléphone non numérique, `role = 'treasury'` et wallet à 0. Sans la ligne, le premier décaissement échouerait sur un email introuvable.
 2. Poser la variable sur Render : `PUT /v1/services/srv-d910o75aeets73eg878g/env-vars/PAYOUT_DESTINATION_EMAIL`, puis **relire et comparer** — un 200 ne prouve rien.
 3. Pousser la branche. `POST /v1/services/{id}/deploys` si l'auto-deploy ne part pas ; **jamais un restart**, il ne réapplique pas la configuration d'environnement.
 4. Attendre `status: "live"`, vérifier les logs de build et de démarrage (dont la ligne `Compte de décaissement résolu`), et `GET /` à 200.

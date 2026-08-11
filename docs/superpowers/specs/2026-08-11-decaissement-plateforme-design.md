@@ -35,7 +35,7 @@ Volontairement hors périmètre :
 | Question | Décision |
 |---|---|
 | Destination | Transfert **interne** vers un wallet PayWest. La somme des wallets reste inchangée ; la sortie réelle se fait ensuite depuis ce compte, hors système. |
-| Bénéficiaire | Compte fixe résolu par la variable d'environnement `PAYOUT_DESTINATION_EMAIL`, **jamais lu dans la requête**. |
+| Bénéficiaire | Compte **trésorerie dédié et non connectable** (`treasury@paywest.internal`), résolu par la variable d'environnement `PAYOUT_DESTINATION_EMAIL`, **jamais lu dans la requête**. |
 | Protection | OTP SMS **systématique**, quel que soit le montant. |
 | Plafonds BCÉAO | Non appliqués : ils encadrent les transferts clients, un mouvement interne de trésorerie n'entre pas dans leurs sommes. |
 | Frais | Aucun. `computeFee()` ne concerne que les transferts P2P. |
@@ -46,6 +46,44 @@ Un compte admin compromis peut alors déclencher un décaissement, mais pas le
 détourner : l'argent ne peut aller que vers le compte configuré côté serveur.
 Changer la destination exige un accès aux variables d'environnement Render,
 pas un JWT.
+
+### Pourquoi un compte trésorerie dédié et non le compte admin
+
+Décision prise après la revue finale de branche, qui a corrigé un choix initial
+erroné. Le bénéficiaire retenu au cadrage était `bienvenu@paywest.com` — mais
+c'est le **compte de login administrateur**. Un bénéficiaire fixe empêche de
+détourner un décaissement ; il n'empêche rien une fois l'argent arrivé. Avec
+l'argent posé sur un wallet accessible par session, un JWT admin volé pouvait
+le sortir par `/api/transactions/send` en tranches sous le seuil OTP de
+100 000 XOF. La garantie « destination inviolable » ne tenait donc que jusqu'à
+l'arrivée des fonds.
+
+Le compte trésorerie referme cela en étant un **cul-de-sac** : les revenus y
+entrent par le décaissement, et aucune route de l'API ne peut les en sortir.
+Trois propriétés le garantissent, calquées sur le compte plateforme existant :
+
+- `password = '*'` — jamais un hash bcrypt valide, donc `bcrypt.compare`
+  renvoie `false` quelle que soit l'entrée : aucun mot de passe n'ouvre de
+  session.
+- Téléphone `TREASURY-ACCOUNT` — non numérique, rejeté par le validateur
+  `^\+?[0-9]{8,15}$` : le compte n'est pas visable comme destinataire d'un
+  transfert.
+- `role = 'treasury'`, surtout **pas** `'platform'` : `platformAccount.js`
+  résout le compte plateforme par `role = 'platform' ORDER BY id LIMIT 1`, un
+  second porteur du rôle en ferait un candidat départagé par un `ORDER BY`. Ce
+  rôle n'est par ailleurs ni dans un `verifyRole`, ni dans les `validRoles`
+  d'`updateUserRole` : il n'est ni accordable ni retirable par l'API.
+
+Ce qu'on abandonne en échange : le solde n'est plus consultable par une
+session, puisqu'il n'y en a pas. `GET /api/admin/platform-balance` renvoie donc
+aussi ce solde (champ `payout_destination`) — c'est la seule fenêtre sur les
+revenus déjà décaissés.
+
+Ce que ce choix **ne** change **pas** : il ne rapproche ni n'éloigne l'argent
+d'une sortie réelle. `withdrawToWave`/`withdrawToOrange` ne décaissent rien
+(voir plus bas), donc dans les deux cas la sortie effective est une opération
+hors plateforme. Le compte admin n'offrait aucune facilité pratique — seulement
+une surface d'attaque de plus.
 
 ### Pourquoi un OTP à tout montant
 
@@ -252,14 +290,22 @@ Blocs Swagger sur les deux routes, dans le tag `Administration` existant.
 
 ## Configuration et mise en production
 
-`PAYOUT_DESTINATION_EMAIL` à poser dans :
+`PAYOUT_DESTINATION_EMAIL = treasury@paywest.internal` à poser dans :
 - `.env` (local)
 - `.env.example`
 - la liste de variables obligatoires de `src/tests/setup.js`
 - les variables d'environnement Render (production)
 
+Le compte lui-même est créé par `src/config/initDb.js`, idempotent
+(`ON CONFLICT (email) DO NOTHING`), sur le modèle du compte plateforme. En
+production, la ligne doit exister **avant** que la variable ne soit posée,
+faute de quoi le premier décaissement échouerait sur un email introuvable.
+
 Ordre de déploiement :
 
+0. Compte trésorerie créé en production (et sur `paywest_test`), **vérifié par
+   relecture** : `password = '*'`, téléphone non numérique, `role = 'treasury'`,
+   wallet à 0 présent
 1. Variable posée sur Render, **relue et comparée par empreinte** (une écriture
    qui renvoie 200 ne prouve rien)
 2. `POST /v1/services/{id}/deploys` — jamais un restart, il ne réapplique pas
