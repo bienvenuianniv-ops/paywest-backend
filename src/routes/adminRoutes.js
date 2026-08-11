@@ -150,6 +150,20 @@ router.get('/audit', adminOnly, async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/admin/platform-balance:
+ *   get:
+ *     summary: Solde du wallet plateforme (revenus de frais accumulés)
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Solde courant du compte plateforme
+ *       403:
+ *         description: Accès refusé — rôle admin requis
+ */
 router.get(
   '/platform-balance',
   adminOnly,
@@ -162,6 +176,56 @@ router.get(
 // la derniere porte avant le controleur. checkTransactionLimits n'est
 // volontairement PAS applique : les plafonds BCEAO encadrent les transferts
 // clients, un mouvement interne de tresorerie n'entre pas dans leurs sommes.
+/**
+ * @swagger
+ * /api/admin/payout:
+ *   post:
+ *     summary: Décaisser les revenus du wallet plateforme
+ *     description: >
+ *       Transfert interne du wallet plateforme vers un compte PayWest fixe,
+ *       résolu côté serveur par la variable d'environnement
+ *       PAYOUT_DESTINATION_EMAIL — la destination n'est jamais lue dans la
+ *       requête. Un code OTP envoyé par SMS est exigé quel que soit le montant.
+ *     tags: [Administration]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: header
+ *         name: Idempotency-Key
+ *         schema:
+ *           type: string
+ *         description: Optionnel — protège d'un double envoi
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount]
+ *             properties:
+ *               amount:
+ *                 type: integer
+ *                 example: 50000
+ *               otp_code:
+ *                 type: string
+ *                 example: "123456"
+ *                 description: Absent au premier appel — déclenche l'envoi du code
+ *     responses:
+ *       200:
+ *         description: Décaissement effectué
+ *       400:
+ *         description: Montant invalide ou solde plateforme insuffisant
+ *       401:
+ *         description: Code OTP invalide ou expiré
+ *       403:
+ *         description: Rôle admin requis, ou code OTP exigé
+ *       409:
+ *         description: Requête identique déjà en cours de traitement
+ *       500:
+ *         description: Compte de destination non configuré
+ *       502:
+ *         description: Échec de l'envoi du SMS
+ */
 router.post(
   '/payout',
   adminOnly,

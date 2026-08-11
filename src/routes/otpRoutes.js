@@ -22,7 +22,7 @@ const { resendOtp } = require('../controllers/otpController');
  *             properties:
  *               purpose:
  *                 type: string
- *                 enum: [transactions.send, withdraw.wave, withdraw.orange]
+ *                 enum: [transactions.send, withdraw.wave, withdraw.orange, admin.payout]
  *               amount:
  *                 type: integer
  *               receiver_phone:

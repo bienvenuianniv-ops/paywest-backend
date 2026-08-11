@@ -79,7 +79,13 @@ const createPayout = async (req, res) => {
     // dernier, via l'UPDATE des frais). Un decaissement qui verrouillait la
     // plateforme avant le beneficiaire formait donc un cycle ABBA avec un
     // transfert dont l'expediteur est ce meme beneficiaire — deadlock observe
-    // en test. L'ordre croissant rend les deux chemins compatibles.
+    // en test. sendMoney verrouille par role (expediteur, puis destinataire,
+    // puis plateforme), pas par user_id : l'ordre croissant ne supprime ce
+    // cycle que tant que l'id du beneficiaire est INFERIEUR a celui du compte
+    // plateforme — vrai aujourd'hui (beneficiaire id 1, plateforme id 51),
+    // mais pas garanti en general. Si un futur beneficiaire de decaissement
+    // avait un id superieur a celui de la plateforme, cette hypothese serait
+    // a revalider.
     //
     // Deux requetes explicites plutot que WHERE user_id IN (...) ORDER BY ...
     // FOR UPDATE : avec un noeud de tri, PostgreSQL verrouille dans l'ordre du
