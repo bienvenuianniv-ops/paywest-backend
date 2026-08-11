@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { getAllUsers, getAllTransactions, getStats, updateUserRole, suspendUser } = require('../controllers/adminController');
-const { getPlatformBalance } = require('../controllers/payoutController');
+const { getPlatformBalance, validatePayoutAmount, createPayout } = require('../controllers/payoutController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 const auditLog = require('../middleware/auditLog');
+const { idempotency } = require('../middleware/idempotency');
+const { requireOtp } = require('../middleware/requireOtp');
 const pool = require('../config/db');
 
 const adminOnly = [verifyToken, verifyRole('admin')];
@@ -153,6 +155,21 @@ router.get(
   adminOnly,
   auditLog('admin_view_platform_balance'),
   getPlatformBalance
+);
+
+// Ordre repris des routes monetaires existantes : l'audit enregistre
+// l'intention en premier, l'idempotence protege du double envoi, et l'OTP est
+// la derniere porte avant le controleur. checkTransactionLimits n'est
+// volontairement PAS applique : les plafonds BCEAO encadrent les transferts
+// clients, un mouvement interne de tresorerie n'entre pas dans leurs sommes.
+router.post(
+  '/payout',
+  adminOnly,
+  auditLog('admin_payout'),
+  idempotency('admin.payout'),
+  validatePayoutAmount,
+  requireOtp('admin.payout'),
+  createPayout
 );
 
 module.exports = router;
