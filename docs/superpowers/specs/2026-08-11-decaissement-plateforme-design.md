@@ -103,6 +103,15 @@ Calqué sur `platformAccount.js` : résout l'id du bénéficiaire depuis
 - Email inconnu en base → erreur explicite
 - Compte résolu = compte plateforme → erreur explicite (configuration
   incohérente : la plateforme se paierait elle-même)
+- **Compte résolu connectable (`password != '*'`) → erreur explicite.** Ajouté
+  après la re-revue. La sûreté du décaissement tient entièrement à ce que le
+  bénéficiaire n'ait pas de session ; deux chemins y menaient sans que rien ne
+  le signale : une variable repointée vers un compte de login, et l'inscription
+  d'un compte à l'adresse réservée avant que le vrai compte ne soit créé —
+  `/api/auth/register` est ouvert, ne réserve aucune adresse, et l'email figure
+  en clair dans un dépôt public. La garantie est donc vérifiée à l'exécution et
+  non tenue par convention. `initDb.js` complète en `ON CONFLICT DO UPDATE`,
+  qui réécrit la forme d'une ligne squattée au lieu de la laisser intacte.
 - `resetPayoutCache()` réservé aux tests, comme `resetPlatformCache()`
 
 Vérification au démarrage dans le bloc `require.main === module` de
