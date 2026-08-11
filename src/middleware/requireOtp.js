@@ -216,7 +216,23 @@ const requireOtp = (purpose) => {
         });
       }
 
-      await pool.query('UPDATE otp_codes SET used_at = NOW() WHERE id = $1', [otpRow.id]);
+      // Consommation atomique : c'est cet UPDATE, et non le SELECT plus haut,
+      // qui decide qui a le droit de passer. Deux requetes concurrentes portant
+      // le meme code valide franchissent toutes deux le SELECT et le
+      // bcrypt.compare (~100 ms) ; sans la clause used_at IS NULL ici, elles
+      // appelleraient toutes deux next() et produiraient deux mouvements.
+      const consumed = await pool.query(
+        'UPDATE otp_codes SET used_at = NOW() WHERE id = $1 AND used_at IS NULL',
+        [otpRow.id]
+      );
+
+      if (consumed.rowCount === 0) {
+        return res.status(401).json({
+          otp_invalid: true,
+          message: 'Code invalide ou expiré. Demandez un nouveau code.'
+        });
+      }
+
       next();
 
     } catch (error) {

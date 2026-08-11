@@ -57,10 +57,11 @@ const reversePayout = async (transaction) => {
 // deviennent une course avec les autres workers Jest qui tournent en
 // parallele sur la meme base paywest_test — c'est exactement ce qui causait
 // des echecs intermittents quand PAYOUT_DESTINATION_EMAIL pointait vers le
-// compte admin partage. Cree ici de facon idempotente (ON CONFLICT DO
-// NOTHING), sur le modele du compte plateforme d'initDb.js : mot de passe '*'
-// donc non connectable, telephone non numerique donc impossible a viser comme
-// destinataire d'un transfert.
+// compte admin partage. La creation elle-meme (idempotente) vit desormais
+// dans src/tests/setup.js, qui s'execute avant CHAQUE fichier de test :
+// payoutDestination.test.js resout aussi cet email, et Jest n'ordonne pas les
+// fichiers de test entre eux — la creer ici seulement laissait cette autre
+// suite echouer si elle s'executait la premiere sur une base neuve.
 beforeAll(async () => {
   const admin = await request(app)
     .post('/api/auth/login')
@@ -75,24 +76,10 @@ beforeAll(async () => {
   const platform = await pool.query(`SELECT id FROM users WHERE role = 'platform'`);
   platformUserId = platform.rows[0].id;
 
-  await pool.query(
-    `INSERT INTO users (full_name, email, phone, password, role)
-     VALUES ('PayWest Destination Test', $1, 'PAYOUT-DEST-TEST', '*', 'customer')
-     ON CONFLICT (email) DO NOTHING`,
-    [process.env.PAYOUT_DESTINATION_EMAIL]
-  );
-
   const destination = await pool.query('SELECT id FROM users WHERE email = $1', [
     process.env.PAYOUT_DESTINATION_EMAIL
   ]);
   destinationUserId = destination.rows[0].id;
-
-  await pool.query(
-    `INSERT INTO wallets (user_id, balance, currency)
-     VALUES ($1, 0, 'XOF')
-     ON CONFLICT (user_id) DO NOTHING`,
-    [destinationUserId]
-  );
 });
 
 describe('GET /api/admin/platform-balance', () => {
@@ -101,19 +88,28 @@ describe('GET /api/admin/platform-balance', () => {
     // Pas d'egalite stricte sur une valeur lue separement avant l'appel :
     // meme raison que partout ailleurs dans ce fichier — le solde plateforme
     // est credite en frais par d'autres suites en parallele, une comparaison
-    // a une lecture prise avant la requete est une course. On verifie la
-    // forme de la reponse (bon compte, type numerique fini, bonne devise),
-    // ce qui suffit a couvrir un bug de requete (mauvaise colonne, mauvais
-    // wallet) sans dependre d'un instantane figé.
+    // a une lecture prise avant la requete est une course. On encadre plutot
+    // la valeur retournee par une lecture directe en base juste avant et
+    // juste apres l'appel : comme aucune autre suite ne debite jamais ce
+    // wallet (seulement des credits de frais), le solde ne peut qu'augmenter
+    // pendant la fenetre — platformBefore <= res.body.balance <= platformAfter
+    // est donc garanti sans course, et une route qui lirait le mauvais wallet
+    // ferait echouer cet encadrement.
+    const platformBefore = await balanceOf(platformUserId);
+
     const res = await request(app)
       .get('/api/admin/platform-balance')
       .set('Authorization', `Bearer ${adminToken}`);
+
+    const platformAfter = await balanceOf(platformUserId);
 
     expect(res.statusCode).toBe(200);
     expect(res.body.platform_user_id).toBe(platformUserId);
     expect(typeof res.body.balance).toBe('number');
     expect(Number.isFinite(res.body.balance)).toBe(true);
     expect(res.body.currency).toBe('XOF');
+    expect(res.body.balance).toBeGreaterThanOrEqual(platformBefore);
+    expect(res.body.balance).toBeLessThanOrEqual(platformAfter);
   });
 
   it('refuse un compte non-admin', async () => {
@@ -186,10 +182,14 @@ describe('POST /api/admin/payout', () => {
 
     const code = lastOtpCode();
 
+    const platformBefore = await balanceOf(platformUserId);
+
     const res = await request(app)
       .post('/api/admin/payout')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ amount, otp_code: code });
+
+    const platformAfter = await balanceOf(platformUserId);
 
     // try/finally : d'autres suites de tests tournent en parallele sur les
     // memes comptes partages (plateforme, admin) et peuvent faire echouer une
@@ -200,7 +200,12 @@ describe('POST /api/admin/payout', () => {
     // Pas d'egalite stricte sur le solde plateforme : d'autres suites le
     // creditent en frais en parallele, ce solde est instable par
     // construction. destinationUserId, lui, est le compte de test dedie —
-    // aucune autre suite n'y touche, l'egalite stricte y est sure.
+    // aucune autre suite n'y touche, l'egalite stricte y est sure. Le cote
+    // plateforme n'est en revanche jamais laisse sans assertion : les autres
+    // suites ne font QUE crediter ce wallet (des frais), jamais le debiter —
+    // une comparaison en <= reste donc deterministe malgre le parallelisme,
+    // et un debit supprime, inverse de signe, ou pointe sur le mauvais
+    // user_id ferait echouer cette assertion.
     try {
       expect(res.statusCode).toBe(200);
       expect(res.body.transaction.type).toBe('payout');
@@ -209,6 +214,7 @@ describe('POST /api/admin/payout', () => {
       expect(res.body.transaction.receiver_id).toBe(destinationUserId);
 
       expect(await balanceOf(destinationUserId)).toBe(destinationBefore + amount);
+      expect(platformAfter).toBeLessThanOrEqual(platformBefore - amount);
     } finally {
       // Deux issues possibles : le decaissement a reussi (une ligne de
       // transaction existe, reversePayout retire ce qui a ete credite au

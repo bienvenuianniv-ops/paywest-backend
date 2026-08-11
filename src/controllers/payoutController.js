@@ -38,7 +38,7 @@ const getPlatformBalance = async (req, res) => {
 // decaissement est une operation de tresorerie saisie a la main, pas un calcul.
 // Refuser les decimales evite les surprises d'arrondi.
 const validatePayoutAmount = (req, res, next) => {
-  const amount = Number(req.body.amount);
+  const amount = Number(req.body?.amount);
 
   if (!Number.isInteger(amount) || amount <= 0) {
     return res.status(400).json({
@@ -74,32 +74,27 @@ const createPayout = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Verrous pris dans l'ordre croissant d'user_id, et non « plateforme
-    // d'abord » : sendMoney verrouille l'expediteur puis la plateforme (en
-    // dernier, via l'UPDATE des frais). Un decaissement qui verrouillait la
-    // plateforme avant le beneficiaire formait donc un cycle ABBA avec un
-    // transfert dont l'expediteur est ce meme beneficiaire — deadlock observe
-    // en test. sendMoney verrouille par role (expediteur, puis destinataire,
-    // puis plateforme), pas par user_id : l'ordre croissant ne supprime ce
-    // cycle que tant que l'id du beneficiaire est INFERIEUR a celui du compte
-    // plateforme — vrai aujourd'hui (beneficiaire id 1, plateforme id 51),
-    // mais pas garanti en general. Si un futur beneficiaire de decaissement
-    // avait un id superieur a celui de la plateforme, cette hypothese serait
-    // a revalider.
+    // Verrous pris beneficiaire d'abord, plateforme en dernier — jamais
+    // l'inverse. L'invariant reel est que le wallet plateforme est TOUJOURS le
+    // dernier verrou pris dans une transaction : sendMoney verrouille
+    // l'expediteur, puis le destinataire, puis la plateforme en dernier (via
+    // l'UPDATE des frais). En reprenant le meme ordre ici (beneficiaire, puis
+    // plateforme), les deux chemins de code sont compatibles sans condition
+    // sur les id — contrairement a un tri par id, qui ne supprimait le cycle
+    // ABBA que tant que l'id du beneficiaire restait inferieur a celui de la
+    // plateforme, et qui aurait donc reintroduit un deadlock avec tout futur
+    // beneficiaire cree apres le compte plateforme.
     //
     // Deux requetes explicites plutot que WHERE user_id IN (...) ORDER BY ...
     // FOR UPDATE : avec un noeud de tri, PostgreSQL verrouille dans l'ordre du
     // parcours, pas dans l'ordre trie — la garantie serait illusoire.
-    const firstId = Math.min(platformUserId, destinationUserId);
-    const secondId = Math.max(platformUserId, destinationUserId);
-
     const firstLock = await client.query(
       'SELECT user_id, balance FROM wallets WHERE user_id = $1 FOR UPDATE',
-      [firstId]
+      [destinationUserId]
     );
     const secondLock = await client.query(
       'SELECT user_id, balance FROM wallets WHERE user_id = $1 FOR UPDATE',
-      [secondId]
+      [platformUserId]
     );
 
     // Un beneficiaire (ou, en theorie, la plateforme elle-meme) sans ligne

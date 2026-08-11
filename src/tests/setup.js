@@ -49,3 +49,37 @@ jest.mock('africastalking', () => jest.fn(() => ({
     })
   }
 })));
+
+const pool = require('../../src/config/db');
+
+// Compte de destination de decaissement, cree ici plutot que dans
+// payout.test.js : payoutDestination.test.js resout lui aussi
+// PAYOUT_DESTINATION_EMAIL contre la base, et Jest execute les fichiers de
+// test dans un ordre non garanti — sur une base paywest_test neuve,
+// payoutDestination.test.js peut s'executer avant payout.test.js et echouer
+// sur expected.rows[0].id, faute de ligne a trouver. Ce hook, enregistre par
+// un fichier setupFilesAfterEnv, s'execute avant le beforeAll de CHAQUE
+// fichier de test — c'est le seul endroit garanti anterieur aux deux suites.
+// Idempotent (ON CONFLICT DO NOTHING) et volontairement leger puisqu'il
+// tourne devant chaque fichier : mot de passe '*' (non connectable),
+// telephone non numerique (jamais visable comme destinataire d'un
+// transfert), sur le modele du compte plateforme d'initDb.js.
+beforeAll(async () => {
+  await pool.query(
+    `INSERT INTO users (full_name, email, phone, password, role)
+     VALUES ('PayWest Destination Test', $1, 'PAYOUT-DEST-TEST', '*', 'customer')
+     ON CONFLICT (email) DO NOTHING`,
+    [process.env.PAYOUT_DESTINATION_EMAIL]
+  );
+
+  const destination = await pool.query('SELECT id FROM users WHERE email = $1', [
+    process.env.PAYOUT_DESTINATION_EMAIL
+  ]);
+
+  await pool.query(
+    `INSERT INTO wallets (user_id, balance, currency)
+     VALUES ($1, 0, 'XOF')
+     ON CONFLICT (user_id) DO NOTHING`,
+    [destination.rows[0].id]
+  );
+});
