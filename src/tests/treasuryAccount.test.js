@@ -79,9 +79,16 @@ describe('compte tresorerie', () => {
   });
 
   it('ne peut pas etre vise comme destinataire d un transfert', async () => {
+    // N'importe quel compte authentifie fait l'affaire : on teste la
+    // resolution du destinataire, pas les droits de l'appelant. On prend le
+    // compte admin parce que TEST_PASSWORD est garde par setup.js — un
+    // identifiant non garde ferait echouer ce test sur un ecart d'assertion
+    // (401 au lieu de 400) au lieu d'un message clair.
     const login = await request(app)
       .post('/api/auth/login')
-      .send({ email: 'client@paywest.com', password: process.env.TEST_CLIENT_PASSWORD });
+      .send({ email: 'bienvenu@paywest.com', password: process.env.TEST_PASSWORD });
+
+    expect(login.body.token).toBeDefined();
 
     const treasury = await pool.query('SELECT phone FROM users WHERE email = $1', [
       TREASURY_EMAIL
