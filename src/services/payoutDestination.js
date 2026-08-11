@@ -14,13 +14,13 @@ const getPayoutDestinationId = async () => {
   const email = process.env.PAYOUT_DESTINATION_EMAIL;
   if (!email) {
     throw new Error(
-      'PAYOUT_DESTINATION_EMAIL non definie : aucun compte beneficiaire configure pour le decaissement.'
+      'PAYOUT_DESTINATION_EMAIL non définie : aucun compte bénéficiaire configuré pour le décaissement.'
     );
   }
 
   const result = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
   if (result.rows.length === 0) {
-    throw new Error(`Compte de decaissement introuvable pour l'email configure (${email}).`);
+    throw new Error(`Compte de décaissement introuvable pour l'email configuré (${email}).`);
   }
 
   const id = result.rows[0].id;
@@ -31,7 +31,7 @@ const getPayoutDestinationId = async () => {
   const platformId = await getPlatformUserId();
   if (id === platformId) {
     throw new Error(
-      'PAYOUT_DESTINATION_EMAIL designe le compte plateforme lui-meme : configuration incoherente.'
+      'PAYOUT_DESTINATION_EMAIL désigne le compte plateforme lui-même : configuration incohérente.'
     );
   }
 
