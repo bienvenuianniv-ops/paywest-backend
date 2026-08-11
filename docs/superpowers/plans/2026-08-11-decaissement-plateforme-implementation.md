@@ -877,8 +877,11 @@ git commit -m "feat(payout): route de consultation du solde plateforme"
   - `requireOtp('admin.payout')` de `src/middleware/requireOtp.js` (tâche 2)
   - `idempotency(label)` de `src/middleware/idempotency.js` — signature existante, `label` libre
   - `redactBody` déjà câblé dans `auditLog` (tâche 3)
-- Produces: `src/controllers/payoutController.js` exporte `{ getPlatformBalance, createPayout }`.
+- Produces: `src/controllers/payoutController.js` exporte `{ getPlatformBalance, validatePayoutAmount, createPayout }`.
+  - `validatePayoutAmount(req, res, next)` — middleware Express, répond 400 si `amount` n'est pas un entier strictement positif, sinon appelle `next()`.
   - `POST /api/admin/payout` `{ amount: number, otp_code?: string }` → 200 `{ message, transaction, platform_balance }`.
+
+**Pourquoi la validation est un middleware et non un test en tête de contrôleur :** `requireOtp` s'exécute **avant** le contrôleur. Un montant à virgule (`1500.5`) est fini et strictement supérieur au seuil `0`, donc sans validation préalable il déclencherait un défi OTP — **un vrai SMS** — avant d'être rejeté. Placer la validation avant `requireOtp` refuse la saisie invalide au plus tôt. La validation n'existe qu'à un seul endroit : le contrôleur ne la répète pas.
 
 - [ ] **Step 1: Écrire les tests qui échouent**
 
@@ -1097,17 +1100,30 @@ const { getPayoutDestinationId } = require('../services/payoutDestination');
 Ajouter la fonction avant `module.exports` :
 
 ```js
-const createPayout = async (req, res) => {
+// Place AVANT requireOtp dans la chaine : un montant a virgule ou negatif est
+// fini et superieur au seuil 0, il declencherait donc un defi OTP — et un vrai
+// SMS — avant d'etre rejete par le controleur. On refuse la saisie invalide au
+// plus tot.
+//
+// Entier strictement positif : les wallets sont en DECIMAL(15,2), mais un
+// decaissement est une operation de tresorerie saisie a la main, pas un calcul.
+// Refuser les decimales evite les surprises d'arrondi.
+const validatePayoutAmount = (req, res, next) => {
   const amount = Number(req.body.amount);
 
-  // Entier strictement positif : les wallets sont en DECIMAL(15,2), mais un
-  // decaissement est une operation de tresorerie saisie a la main, pas un
-  // calcul. Refuser les decimales evite les surprises d'arrondi.
   if (!Number.isInteger(amount) || amount <= 0) {
     return res.status(400).json({
       message: 'Montant invalide : un entier strictement positif est attendu'
     });
   }
+
+  next();
+};
+
+const createPayout = async (req, res) => {
+  // Deja valide par validatePayoutAmount, qui precede cette fonction dans la
+  // chaine de la route : entier strictement positif garanti.
+  const amount = Number(req.body.amount);
 
   let platformUserId;
   let destinationUserId;
@@ -1202,7 +1218,7 @@ const createPayout = async (req, res) => {
 Remplacer la dernière ligne par :
 
 ```js
-module.exports = { getPlatformBalance, createPayout };
+module.exports = { getPlatformBalance, validatePayoutAmount, createPayout };
 ```
 
 - [ ] **Step 4: Déclarer la route**
@@ -1210,7 +1226,7 @@ module.exports = { getPlatformBalance, createPayout };
 Dans `src/routes/adminRoutes.js`, compléter l'import du contrôleur :
 
 ```js
-const { getPlatformBalance, createPayout } = require('../controllers/payoutController');
+const { getPlatformBalance, validatePayoutAmount, createPayout } = require('../controllers/payoutController');
 ```
 
 Ajouter les imports des deux middlewares, après la ligne `const auditLog = ...` :
@@ -1233,6 +1249,7 @@ router.post(
   adminOnly,
   auditLog('admin_payout'),
   idempotency('admin.payout'),
+  validatePayoutAmount,
   requireOtp('admin.payout'),
   createPayout
 );

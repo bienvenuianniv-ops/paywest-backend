@@ -95,12 +95,20 @@ bien `fee = 0`.
 Déclarées dans `adminRoutes.js`, chaîne complète :
 
 ```
-adminOnly → auditLog('admin_payout') → idempotency('admin.payout') → requireOtp('admin.payout')
+adminOnly → auditLog('admin_payout') → idempotency('admin.payout')
+          → validatePayoutAmount → requireOtp('admin.payout') → createPayout
 ```
 
 L'ordre reprend celui des routes monétaires existantes : l'audit enregistre
 l'intention avant toute vérification, l'idempotence protège du double envoi, et
 l'OTP est la dernière porte avant le contrôleur.
+
+`validatePayoutAmount` est un middleware et non un test en tête de contrôleur
+parce que `requireOtp` s'exécute **avant** le contrôleur : un montant à virgule
+comme `1500.5` est fini et strictement supérieur au seuil `0`, donc sans
+validation préalable il déclencherait un défi OTP — et un vrai SMS — avant
+d'être rejeté. La validation n'existe qu'à un seul endroit ; le contrôleur ne
+la répète pas.
 
 `GET /api/admin/platform-balance` ne porte que `adminOnly` + `auditLog`.
 
