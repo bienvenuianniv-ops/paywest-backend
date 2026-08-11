@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getAllUsers, getAllTransactions, getStats, updateUserRole, suspendUser } = require('../controllers/adminController');
+const { getPlatformBalance } = require('../controllers/payoutController');
 const { verifyToken, verifyRole } = require('../middleware/authMiddleware');
 const auditLog = require('../middleware/auditLog');
 const pool = require('../config/db');
@@ -146,5 +147,12 @@ router.get('/audit', adminOnly, async (req, res) => {
     res.status(500).json({ message: 'Erreur serveur' });
   }
 });
+
+router.get(
+  '/platform-balance',
+  adminOnly,
+  auditLog('admin_view_platform_balance'),
+  getPlatformBalance
+);
 
 module.exports = router;
