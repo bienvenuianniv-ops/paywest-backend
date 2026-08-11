@@ -115,6 +115,64 @@ describe('GET /api/admin/platform-balance', () => {
     expect(res.body.balance).toBeLessThanOrEqual(platformAfter);
   });
 
+  // Contrepartie du choix d'un beneficiaire non connectable : le compte
+  // tresorerie n'a pas de session, donc cette route est la SEULE fenetre sur
+  // les revenus deja decaisses. Sans elle, l'argent sort du wallet plateforme
+  // et devient invisible depuis l'application.
+  it('renvoie aussi le solde du compte beneficiaire', async () => {
+    // Egalite stricte assumee ici, contrairement au solde plateforme
+    // ci-dessus : le wallet du beneficiaire n'est touche par aucune autre
+    // suite, et Jest serialise les tests d'un meme fichier — la lecture prise
+    // juste avant l'appel ne peut pas avoir bouge entre-temps.
+    const destinationBefore = await balanceOf(destinationUserId);
+
+    const res = await request(app)
+      .get('/api/admin/platform-balance')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.payout_destination).toBeTruthy();
+    expect(res.body.payout_destination.user_id).toBe(destinationUserId);
+    expect(res.body.payout_destination.balance).toBe(destinationBefore);
+    expect(res.body.payout_destination.currency).toBe('XOF');
+
+    // Le solde plateforme reste a la racine : la forme existante de la
+    // reponse ne change pas, l'ajout est purement additif.
+    expect(res.body.platform_user_id).toBe(platformUserId);
+    expect(res.body.payout_destination.user_id).not.toBe(platformUserId);
+  });
+
+  it('lit le solde beneficiaire en direct et non une valeur figee', async () => {
+    // Les assertions de forme ci-dessus passeraient encore si la route
+    // renvoyait le wallet plateforme deux fois, ou une constante. On fait
+    // donc bouger le seul wallet du beneficiaire et on verifie que la
+    // reponse suit — sans toucher au wallet plateforme, dont la valeur doit
+    // justement rester independante.
+    const before = await request(app)
+      .get('/api/admin/platform-balance')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    await pool.query('UPDATE wallets SET balance = balance + 5000 WHERE user_id = $1', [
+      destinationUserId
+    ]);
+
+    try {
+      const after = await request(app)
+        .get('/api/admin/platform-balance')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(after.body.payout_destination.balance).toBe(
+        before.body.payout_destination.balance + 5000
+      );
+    } finally {
+      // Remise en etat meme si l'assertion echoue : la somme des wallets de
+      // paywest_test doit etre strictement identique avant et apres le run.
+      await pool.query('UPDATE wallets SET balance = balance - 5000 WHERE user_id = $1', [
+        destinationUserId
+      ]);
+    }
+  });
+
   it('refuse un compte non-admin', async () => {
     const res = await request(app)
       .get('/api/admin/platform-balance')

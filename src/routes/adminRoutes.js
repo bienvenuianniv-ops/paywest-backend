@@ -155,13 +155,54 @@ router.get('/audit', adminOnly, async (req, res) => {
  * @swagger
  * /api/admin/platform-balance:
  *   get:
- *     summary: Solde du wallet plateforme (revenus de frais accumulés)
+ *     summary: Soldes de trésorerie — revenus à décaisser et revenus décaissés
+ *     description: >
+ *       Renvoie deux montants : `balance`, le solde du wallet plateforme,
+ *       c'est-à-dire les frais accumulés qui restent à décaisser, et
+ *       `payout_destination`, le solde du compte bénéficiaire des
+ *       décaissements — les revenus déjà sortis du wallet plateforme.
+ *       Ce second bloc est la seule fenêtre sur ce compte : il est
+ *       volontairement non connectable, donc aucune session ne peut consulter
+ *       son solde autrement. Il vaut `null` si le décaissement n'est pas
+ *       configuré (variable `PAYOUT_DESTINATION_EMAIL` absente ou email
+ *       inconnu) — le solde plateforme reste alors lisible.
  *     tags: [Administration]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Solde courant du compte plateforme
+ *         description: Soldes courants du compte plateforme et du bénéficiaire
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 platform_user_id:
+ *                   type: integer
+ *                   example: 51
+ *                 balance:
+ *                   type: number
+ *                   description: Frais accumulés, restant à décaisser
+ *                   example: 23000
+ *                 currency:
+ *                   type: string
+ *                   example: XOF
+ *                 payout_destination:
+ *                   nullable: true
+ *                   type: object
+ *                   description: Revenus déjà décaissés
+ *                   properties:
+ *                     user_id:
+ *                       type: integer
+ *                       example: 225
+ *                     balance:
+ *                       type: number
+ *                       example: 150000
+ *                     currency:
+ *                       type: string
+ *                       example: XOF
+ *       401:
+ *         description: Jeton absent ou invalide
  *       403:
  *         description: Accès refusé — rôle admin requis
  */

@@ -17,10 +17,45 @@ const getPlatformBalance = async (req, res) => {
       return res.status(500).json({ message: 'Compte plateforme non configuré' });
     }
 
+    // Solde du compte beneficiaire, c'est-a-dire les revenus DEJA decaisses,
+    // par opposition au solde plateforme qui est ce qui reste a decaisser.
+    //
+    // Cette lecture n'existe que parce que le beneficiaire est un compte non
+    // connectable : il n'a pas de session, donc aucun /api/wallet ne peut
+    // montrer son solde. Sans cette route, l'argent quitterait le wallet
+    // plateforme pour devenir invisible depuis l'application.
+    //
+    // Degrade en null plutot que d'echouer : une variable d'environnement
+    // absente ou un email inconnu est une erreur de configuration du
+    // decaissement, deja signalee au demarrage, et qui n'a aucune raison de
+    // rendre le solde plateforme illisible. La route garde ainsi son contrat
+    // d'origine.
+    let payoutDestination = null;
+    try {
+      const destinationUserId = await getPayoutDestinationId();
+      const destinationWallet = await pool.query(
+        'SELECT balance, currency FROM wallets WHERE user_id = $1',
+        [destinationUserId]
+      );
+
+      if (destinationWallet.rows.length === 0) {
+        logger.error('Wallet beneficiaire introuvable', { destinationUserId });
+      } else {
+        payoutDestination = {
+          user_id: destinationUserId,
+          balance: parseFloat(destinationWallet.rows[0].balance),
+          currency: destinationWallet.rows[0].currency
+        };
+      }
+    } catch (error) {
+      logger.error('Solde beneficiaire indisponible', { error: error.message });
+    }
+
     res.json({
       platform_user_id: platformUserId,
       balance: parseFloat(result.rows[0].balance),
-      currency: result.rows[0].currency
+      currency: result.rows[0].currency,
+      payout_destination: payoutDestination
     });
 
   } catch (error) {
