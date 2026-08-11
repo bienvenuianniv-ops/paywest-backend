@@ -27,6 +27,13 @@ for (const variable of ['TEST_PASSWORD', 'TEST_AGENT_PASSWORD']) {
   }
 }
 
+if (!process.env.PAYOUT_DESTINATION_EMAIL) {
+  throw new Error(
+    'PAYOUT_DESTINATION_EMAIL manquant : les tests de decaissement resolvent ' +
+    'le compte beneficiaire par cette variable. La definir dans .env.'
+  );
+}
+
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({
     emails: {

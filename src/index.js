@@ -110,6 +110,19 @@ if (require.main === module) {
     .then((id) => console.log(`Compte plateforme résolu (user_id=${id})`))
     .catch((error) => console.error('❌ Compte plateforme:', error.message));
 
+  const { getPayoutDestinationId } = require('./services/payoutDestination');
+
+  // Meme motif que ci-dessus : une variable oubliee ou un email errone doit
+  // se voir dans les logs de demarrage, pas au moment ou un admin declenche
+  // un decaissement.
+  //
+  // .catch qui logue et n'interrompt rien, exactement comme le compte
+  // plateforme : une configuration de decaissement absente ne doit pas
+  // empecher l'API de paiement de demarrer. Seule /api/admin/payout tombe.
+  getPayoutDestinationId()
+    .then((id) => console.log(`Compte de décaissement résolu (user_id=${id})`))
+    .catch((error) => console.error('❌ Compte de décaissement:', error.message));
+
   app.listen(PORT, () => {
     console.log(`Serveur PayWest démarré sur le port ${PORT}`);
   });
