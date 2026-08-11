@@ -74,21 +74,49 @@ const createPayout = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // FOR UPDATE comme partout ailleurs sur les mouvements d'argent : verrouille
-    // la ligne jusqu'au COMMIT, donc deux decaissements concurrents ne peuvent
-    // pas lire le meme solde et le depasser a eux deux.
-    const platformWallet = await client.query(
-      'SELECT balance FROM wallets WHERE user_id = $1 FOR UPDATE',
-      [platformUserId]
+    // Verrous pris dans l'ordre croissant d'user_id, et non « plateforme
+    // d'abord » : sendMoney verrouille l'expediteur puis la plateforme (en
+    // dernier, via l'UPDATE des frais). Un decaissement qui verrouillait la
+    // plateforme avant le beneficiaire formait donc un cycle ABBA avec un
+    // transfert dont l'expediteur est ce meme beneficiaire — deadlock observe
+    // en test. L'ordre croissant rend les deux chemins compatibles.
+    //
+    // Deux requetes explicites plutot que WHERE user_id IN (...) ORDER BY ...
+    // FOR UPDATE : avec un noeud de tri, PostgreSQL verrouille dans l'ordre du
+    // parcours, pas dans l'ordre trie — la garantie serait illusoire.
+    const firstId = Math.min(platformUserId, destinationUserId);
+    const secondId = Math.max(platformUserId, destinationUserId);
+
+    const firstLock = await client.query(
+      'SELECT user_id, balance FROM wallets WHERE user_id = $1 FOR UPDATE',
+      [firstId]
+    );
+    const secondLock = await client.query(
+      'SELECT user_id, balance FROM wallets WHERE user_id = $1 FOR UPDATE',
+      [secondId]
     );
 
-    if (platformWallet.rows.length === 0) {
+    // Un beneficiaire (ou, en theorie, la plateforme elle-meme) sans ligne
+    // dans wallets est un trou reel : sans cette verification, l'UPDATE plus
+    // bas touche 0 ligne en silence, la plateforme est quand meme debitee, la
+    // transaction est inseree, et l'argent disparait sans que rien ne le
+    // signale.
+    if (firstLock.rows.length !== 1 || secondLock.rows.length !== 1) {
       await client.query('ROLLBACK');
-      logger.error('Wallet plateforme introuvable', { platformUserId });
-      return res.status(500).json({ message: 'Compte plateforme non configuré' });
+      logger.error('Wallet introuvable pour le decaissement', {
+        platformUserId,
+        destinationUserId,
+        firstFound: firstLock.rows.length === 1,
+        secondFound: secondLock.rows.length === 1
+      });
+      return res.status(500).json({ message: 'Compte plateforme ou bénéficiaire non configuré' });
     }
 
-    const balance = parseFloat(platformWallet.rows[0].balance);
+    const platformWallet = [...firstLock.rows, ...secondLock.rows].find(
+      (row) => row.user_id === platformUserId
+    );
+
+    const balance = parseFloat(platformWallet.balance);
 
     if (balance < amount) {
       await client.query('ROLLBACK');
