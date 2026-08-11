@@ -4,7 +4,15 @@ const pool = require('../config/db');
 const logger = require('../config/logger');
 const { sendOtpSMS } = require('../config/sms');
 
-const OTP_THRESHOLD = 100000;
+// Montant AU-DESSUS duquel un code est exige, par usage. La comparaison
+// etant `amount <= seuil -> pas d'OTP`, un seuil a 0 signifie « tout montant
+// strictement positif exige un code », sans cas particulier dans le code.
+const OTP_THRESHOLDS = {
+  'transactions.send': 100000,
+  'withdraw.wave': 100000,
+  'withdraw.orange': 100000,
+  'admin.payout': 0
+};
 const OTP_TTL_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RESEND_COOLDOWN_MS = 60 * 1000;
@@ -16,7 +24,10 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 const BINDING_FIELDS = {
   'transactions.send': (body) => `${body.amount}:${body.receiver_phone}`,
   'withdraw.wave': (body) => `${body.amount}:${body.phone}`,
-  'withdraw.orange': (body) => `${body.amount}:${body.phone}`
+  'withdraw.orange': (body) => `${body.amount}:${body.phone}`,
+  // La destination d'un decaissement est fixee cote serveur : le montant
+  // identifie seul l'operation.
+  'admin.payout': (body) => `${body.amount}:payout`
 };
 
 const isValidPurpose = (purpose) => Object.prototype.hasOwnProperty.call(BINDING_FIELDS, purpose);
@@ -24,6 +35,18 @@ const isValidPurpose = (purpose) => Object.prototype.hasOwnProperty.call(BINDING
 const computeBindingHash = (purpose, body) => {
   const raw = BINDING_FIELDS[purpose](body);
   return crypto.createHash('sha256').update(raw).digest('hex');
+};
+
+// Champs du body que /api/otp/resend doit exiger pour reconstituer le
+// binding, par usage. Table plutot que ternaire : un ternaire sur le purpose
+// devient faux en silence des qu'un usage est ajoute — c'etait le cas ici,
+// `admin.payout` se serait mis a reclamer un `phone` qui n'entre meme pas
+// dans son binding.
+const REQUIRED_BODY_FIELDS = {
+  'transactions.send': ['receiver_phone'],
+  'withdraw.wave': ['phone'],
+  'withdraw.orange': ['phone'],
+  'admin.payout': []
 };
 
 // Invalide tout code actif pour ce binding, en genere et en envoie un
@@ -75,118 +98,132 @@ const generateAndSendOtp = async (userId, purpose, bindingHash) => {
   }
 };
 
-const requireOtp = (purpose) => async (req, res, next) => {
-  const amount = Number(req.body.amount);
-
-  if (!Number.isFinite(amount) || amount <= OTP_THRESHOLD) {
-    return next();
+const requireOtp = (purpose) => {
+  // Verification a la construction du middleware, donc au chargement des
+  // routes : un usage mal orthographie fait echouer le demarrage au lieu de
+  // laisser passer les requetes sans OTP (`amount <= undefined` est faux,
+  // mais le binding, lui, planterait a la premiere requete).
+  if (!isValidPurpose(purpose)) {
+    throw new Error(`Usage OTP inconnu : ${purpose}`);
   }
 
-  const userId = req.user.id;
-  const bindingHash = computeBindingHash(purpose, req.body);
-  const otpCode = req.body.otp_code;
+  return async (req, res, next) => {
+    const amount = Number(req.body.amount);
 
-  try {
-    if (!otpCode) {
-      // Le filtre sur used_at/expires_at est essentiel : sans lui, la premiere
-      // ligne creee pour un binding y restait pour toujours (rien ne purge
-      // otp_codes), donc apres un transfert abouti tout nouveau transfert du
-      // MEME montant au MEME destinataire recevait « un code a deja ete
-      // envoye » sans qu'aucun SMS ne parte. La protection anti-spam reste
-      // entiere : un code encore actif continue de bloquer la regeneration.
-      const alreadyChallenged = await pool.query(
-        `SELECT 1 FROM otp_codes
-         WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3
-         AND used_at IS NULL AND expires_at > NOW() LIMIT 1`,
-        [userId, purpose, bindingHash]
-      );
+    // Un amount non numerique saute l'OTP et tombe sur la validation du
+    // controleur, qui repond 400 : rien ne bouge. Contre-intuitif pour un
+    // usage a seuil 0, mais volontaire — sans montant exploitable il n'y a
+    // pas de binding a calculer.
+    if (!Number.isFinite(amount) || amount <= OTP_THRESHOLDS[purpose]) {
+      return next();
+    }
 
-      if (alreadyChallenged.rows.length > 0) {
-        // Un defi a deja ete envoye pour cette transaction precise : ne pas en
-        // regenerer un a chaque resoumission (ca reinitialiserait le verrou de
-        // tentatives et permettrait un envoi de SMS illimite) — rediriger vers
-        // /api/otp/resend, qui a son propre cooldown independant.
+    const userId = req.user.id;
+    const bindingHash = computeBindingHash(purpose, req.body);
+    const otpCode = req.body.otp_code;
+
+    try {
+      if (!otpCode) {
+        // Le filtre sur used_at/expires_at est essentiel : sans lui, la premiere
+        // ligne creee pour un binding y restait pour toujours (rien ne purge
+        // otp_codes), donc apres un transfert abouti tout nouveau transfert du
+        // MEME montant au MEME destinataire recevait « un code a deja ete
+        // envoye » sans qu'aucun SMS ne parte. La protection anti-spam reste
+        // entiere : un code encore actif continue de bloquer la regeneration.
+        const alreadyChallenged = await pool.query(
+          `SELECT 1 FROM otp_codes
+           WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3
+           AND used_at IS NULL AND expires_at > NOW() LIMIT 1`,
+          [userId, purpose, bindingHash]
+        );
+
+        if (alreadyChallenged.rows.length > 0) {
+          // Un defi a deja ete envoye pour cette transaction precise : ne pas en
+          // regenerer un a chaque resoumission (ca reinitialiserait le verrou de
+          // tentatives et permettrait un envoi de SMS illimite) — rediriger vers
+          // /api/otp/resend, qui a son propre cooldown independant.
+          return res.status(403).json({
+            otp_required: true,
+            message: 'Un code a déjà été envoyé par SMS. Utilisez /api/otp/resend pour en redemander un.'
+          });
+        }
+
+        const result = await generateAndSendOtp(userId, purpose, bindingHash);
+        if (result.userMissing) {
+          return res.status(401).json({ message: 'Compte introuvable' });
+        }
+        if (!result.smsSent) {
+          return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
+        }
         return res.status(403).json({
           otp_required: true,
-          message: 'Un code a déjà été envoyé par SMS. Utilisez /api/otp/resend pour en redemander un.'
+          message: 'Code envoyé par SMS, valable 5 minutes.'
         });
       }
 
-      const result = await generateAndSendOtp(userId, purpose, bindingHash);
-      if (result.userMissing) {
-        return res.status(401).json({ message: 'Compte introuvable' });
+      // Un code a-t-il deja ete emis pour EXACTEMENT ce montant+destinataire ?
+      // Si non (le client a change le montant/destinataire entre-temps, ou
+      // fourni un code d'une autre transaction), on traite comme "aucun code
+      // fourni" plutot que "code invalide" : nouveau defi, nouveau SMS.
+      // Volontairement SANS filtre sur used_at/expires_at, contrairement a
+      // `alreadyChallenged` plus haut : les deux questions sont differentes.
+      // Ici on demande « un defi a-t-il deja existe pour ce binding ? » afin de
+      // distinguer un code appartenant a une autre transaction (-> nouveau defi)
+      // d'un code perime ou deja consomme (-> 401 « demandez un nouveau code »).
+      // Filtrer ici ferait repartir un SMS a chaque rejeu d'un code consomme.
+      const everIssued = await pool.query(
+        'SELECT 1 FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3 LIMIT 1',
+        [userId, purpose, bindingHash]
+      );
+
+      if (everIssued.rows.length === 0) {
+        const result = await generateAndSendOtp(userId, purpose, bindingHash);
+        if (result.userMissing) {
+          return res.status(401).json({ message: 'Compte introuvable' });
+        }
+        if (!result.smsSent) {
+          return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
+        }
+        return res.status(403).json({
+          otp_required: true,
+          message: 'Code envoyé par SMS, valable 5 minutes.'
+        });
       }
-      if (!result.smsSent) {
-        return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
+
+      const active = await pool.query(
+        `SELECT * FROM otp_codes
+         WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3
+         AND used_at IS NULL AND expires_at > NOW() AND attempts < $4
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId, purpose, bindingHash, MAX_ATTEMPTS]
+      );
+
+      if (active.rows.length === 0) {
+        return res.status(401).json({
+          otp_invalid: true,
+          message: 'Code invalide ou expiré. Demandez un nouveau code.'
+        });
       }
-      return res.status(403).json({
-        otp_required: true,
-        message: 'Code envoyé par SMS, valable 5 minutes.'
-      });
-    }
 
-    // Un code a-t-il deja ete emis pour EXACTEMENT ce montant+destinataire ?
-    // Si non (le client a change le montant/destinataire entre-temps, ou
-    // fourni un code d'une autre transaction), on traite comme "aucun code
-    // fourni" plutot que "code invalide" : nouveau defi, nouveau SMS.
-    // Volontairement SANS filtre sur used_at/expires_at, contrairement a
-    // `alreadyChallenged` plus haut : les deux questions sont differentes.
-    // Ici on demande « un defi a-t-il deja existe pour ce binding ? » afin de
-    // distinguer un code appartenant a une autre transaction (-> nouveau defi)
-    // d'un code perime ou deja consomme (-> 401 « demandez un nouveau code »).
-    // Filtrer ici ferait repartir un SMS a chaque rejeu d'un code consomme.
-    const everIssued = await pool.query(
-      'SELECT 1 FROM otp_codes WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3 LIMIT 1',
-      [userId, purpose, bindingHash]
-    );
+      const otpRow = active.rows[0];
+      const isMatch = await bcrypt.compare(String(otpCode), otpRow.code_hash);
 
-    if (everIssued.rows.length === 0) {
-      const result = await generateAndSendOtp(userId, purpose, bindingHash);
-      if (result.userMissing) {
-        return res.status(401).json({ message: 'Compte introuvable' });
+      if (!isMatch) {
+        await pool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1', [otpRow.id]);
+        return res.status(401).json({
+          otp_invalid: true,
+          message: 'Code invalide ou expiré. Demandez un nouveau code.'
+        });
       }
-      if (!result.smsSent) {
-        return res.status(502).json({ message: "Erreur d'envoi du SMS, veuillez réessayer." });
-      }
-      return res.status(403).json({
-        otp_required: true,
-        message: 'Code envoyé par SMS, valable 5 minutes.'
-      });
+
+      await pool.query('UPDATE otp_codes SET used_at = NOW() WHERE id = $1', [otpRow.id]);
+      next();
+
+    } catch (error) {
+      logger.error('Erreur vérification OTP', { error: error.message, userId, purpose });
+      res.status(500).json({ message: 'Erreur serveur' });
     }
-
-    const active = await pool.query(
-      `SELECT * FROM otp_codes
-       WHERE user_id = $1 AND purpose = $2 AND binding_hash = $3
-       AND used_at IS NULL AND expires_at > NOW() AND attempts < $4
-       ORDER BY created_at DESC LIMIT 1`,
-      [userId, purpose, bindingHash, MAX_ATTEMPTS]
-    );
-
-    if (active.rows.length === 0) {
-      return res.status(401).json({
-        otp_invalid: true,
-        message: 'Code invalide ou expiré. Demandez un nouveau code.'
-      });
-    }
-
-    const otpRow = active.rows[0];
-    const isMatch = await bcrypt.compare(String(otpCode), otpRow.code_hash);
-
-    if (!isMatch) {
-      await pool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = $1', [otpRow.id]);
-      return res.status(401).json({
-        otp_invalid: true,
-        message: 'Code invalide ou expiré. Demandez un nouveau code.'
-      });
-    }
-
-    await pool.query('UPDATE otp_codes SET used_at = NOW() WHERE id = $1', [otpRow.id]);
-    next();
-
-  } catch (error) {
-    logger.error('Erreur vérification OTP', { error: error.message, userId, purpose });
-    res.status(500).json({ message: 'Erreur serveur' });
-  }
+  };
 };
 
 module.exports = {
@@ -194,6 +231,7 @@ module.exports = {
   computeBindingHash,
   generateAndSendOtp,
   isValidPurpose,
-  OTP_THRESHOLD,
+  OTP_THRESHOLDS,
+  REQUIRED_BODY_FIELDS,
   RESEND_COOLDOWN_MS
 };

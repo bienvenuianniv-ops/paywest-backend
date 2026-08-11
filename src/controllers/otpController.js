@@ -4,6 +4,7 @@ const {
   computeBindingHash,
   generateAndSendOtp,
   isValidPurpose,
+  REQUIRED_BODY_FIELDS,
   RESEND_COOLDOWN_MS
 } = require('../middleware/requireOtp');
 
@@ -19,9 +20,11 @@ const resendOtp = async (req, res) => {
     return res.status(400).json({ message: 'Montant invalide' });
   }
 
-  const targetField = purpose === 'transactions.send' ? 'receiver_phone' : 'phone';
-  if (!req.body[targetField] || typeof req.body[targetField] !== 'string') {
-    return res.status(400).json({ message: `Le champ ${targetField} est obligatoire` });
+  const missing = REQUIRED_BODY_FIELDS[purpose].filter(
+    (field) => !req.body[field] || typeof req.body[field] !== 'string'
+  );
+  if (missing.length > 0) {
+    return res.status(400).json({ message: `Le champ ${missing[0]} est obligatoire` });
   }
 
   const userId = req.user.id;
