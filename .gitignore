@@ -7,3 +7,12 @@ node_modules/
 !.env.example
 
 AUDIT.md
+
+# Artefacts de session (Claude Code / superpowers) : notes, briefs, diffs de
+# revue. Rien de sensible aujourd'hui, mais ce depot est PUBLIC et ces
+# dossiers ne sont couverts que par des regles exterieures au depot -- un
+# gitignore global, propre a une machine, qui ne vise que
+# .claude/settings.local.json, et un .gitignore interne a .superpowers/sdd.
+# Les regles ci-dessous rendent la protection explicite et complete ici meme.
+.claude/
+.superpowers/
