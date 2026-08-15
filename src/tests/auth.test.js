@@ -74,7 +74,7 @@ describe('Authentification', () => {
         .post('/api/auth/login')
         .send({
           email: 'bienvenu@paywest.com',
-          password: process.env.TEST_PASSWORD || '123456'
+          password: process.env.TEST_PASSWORD
         });
       expect(res.statusCode).toBe(200);
       expect(res.body).toHaveProperty('token');
